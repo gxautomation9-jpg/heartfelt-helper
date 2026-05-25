@@ -220,21 +220,6 @@ export function VoiceOutput({
     }
   }, []);
 
-  const clearCloudAudio = useCallback(() => {
-    audioTokenRef.current += 1;
-    const audio = audioRef.current;
-    if (audio) {
-      audio.pause();
-      audio.removeAttribute("src");
-      audio.load();
-      audioRef.current = null;
-    }
-    if (audioUrlRef.current) {
-      URL.revokeObjectURL(audioUrlRef.current);
-      audioUrlRef.current = null;
-    }
-  }, []);
-
   const speakChunk = useCallback(
     (token: number) => {
       if (!supported || stoppedRef.current || token !== playTokenRef.current) return;
@@ -354,11 +339,6 @@ export function VoiceOutput({
         // Try to keep going — skip the bad chunk.
         chunkIndexRef.current += 1;
         if (chunkIndexRef.current >= chunksRef.current.length) {
-          if (cloudFallbackRef.current && !fallbackTriggeredRef.current && !startedRef.current) {
-            fallbackTriggeredRef.current = true;
-            cloudFallbackRef.current(token);
-            return;
-          }
           activeRef.current = false;
           stopKeepAlive();
           setState("idle");
@@ -529,7 +509,7 @@ export function VoiceOutput({
     }
   }, [speed, state, speakChunk]);
 
-  if ((!supported && !cloudVoiceSupported) || !speechText.trim()) return null;
+  if (!supported || !speechText.trim()) return null;
 
   return (
     <div className="mt-3 rounded-xl border border-border/60 bg-background/35 p-2" dir={appLang === "ar" ? "rtl" : "ltr"}>
