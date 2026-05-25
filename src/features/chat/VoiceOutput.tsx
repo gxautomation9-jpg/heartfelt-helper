@@ -14,21 +14,6 @@ type PlaybackState = "idle" | "playing" | "paused";
 const VOICE_OUTPUT_START = "astra-voice-output-start";
 const MAX_CHUNK_LENGTH = 180;
 
-// Module-level cache so replaying the same assistant message never re-spends
-// cloud TTS tokens. Keyed by the normalized speech text.
-const cloudTtsCache = new Map<string, Blob>();
-const CLOUD_CACHE_LIMIT = 24;
-function rememberCloudAudio(key: string, blob: Blob) {
-  if (cloudTtsCache.has(key)) cloudTtsCache.delete(key);
-  cloudTtsCache.set(key, blob);
-  while (cloudTtsCache.size > CLOUD_CACHE_LIMIT) {
-    const oldest = cloudTtsCache.keys().next().value;
-    if (oldest === undefined) break;
-    cloudTtsCache.delete(oldest);
-  }
-}
-const SILENT_WAV = "data:audio/wav;base64,UklGRoQJAABXQVZFZm10IBAAAAABAAEAwF0AAIC7AAACABAAZGF0YWAJAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-
 function isArabic(text: string) {
   return /[\u0600-\u06FF]/.test(text);
 }
@@ -159,13 +144,6 @@ export function VoiceOutput({
   const instanceIdRef = useRef(Math.random());
   const keepAliveRef = useRef<number | null>(null);
   const prevSpeedRef = useRef(speed);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrlRef = useRef<string | null>(null);
-  const audioTokenRef = useRef(0);
-  // Lazy ref so speakChunk can silently hand off to cloud TTS without a
-  // circular dep on playCloudAudio. Assigned after playCloudAudio is defined.
-  const cloudFallbackRef = useRef<((token: number) => void) | null>(null);
-  const fallbackTriggeredRef = useRef(false);
   const startedRef = useRef(false);
   const watchdogRef = useRef<number | null>(null);
 
@@ -177,7 +155,6 @@ export function VoiceOutput({
   );
 
   const supported = typeof window !== "undefined" && "speechSynthesis" in window;
-  const cloudVoiceSupported = typeof window !== "undefined" && typeof Audio !== "undefined";
 
   const copy = useMemo(
     () =>
@@ -243,21 +220,6 @@ export function VoiceOutput({
     }
   }, []);
 
-  const clearCloudAudio = useCallback(() => {
-    audioTokenRef.current += 1;
-    const audio = audioRef.current;
-    if (audio) {
-      audio.pause();
-      audio.removeAttribute("src");
-      audio.load();
-      audioRef.current = null;
-    }
-    if (audioUrlRef.current) {
-      URL.revokeObjectURL(audioUrlRef.current);
-      audioUrlRef.current = null;
-    }
-  }, []);
-
   const speakChunk = useCallback(
     (token: number) => {
       if (!supported || stoppedRef.current || token !== playTokenRef.current) return;
@@ -289,11 +251,8 @@ export function VoiceOutput({
         const v = pickBestVoice(pool, r.lang, currentPrefs);
         return !v || !v.lang.toLowerCase().startsWith(r.lang);
       });
-      if (missingVoiceForRun && cloudFallbackRef.current && !fallbackTriggeredRef.current) {
-        fallbackTriggeredRef.current = true;
-        try { window.speechSynthesis.cancel(); } catch { /* noop */ }
-        cloudFallbackRef.current(token);
-        return;
+      if (missingVoiceForRun) {
+        setNotice(copy.voiceUnavailable);
       }
 
       const utterance = new SpeechSynthesisUtterance(primary?.text ?? chunk);
@@ -368,22 +327,18 @@ export function VoiceOutput({
           recommendation: reco,
         }));
         if (code === "interrupted" || code === "canceled") return;
-        // Hard synthesis problems → silently hand the whole message to cloud TTS.
+        // Hard synthesis problems stay local: show diagnostics and stop cleanly.
         const hardFail = ["synthesis-failed", "synthesis-unavailable", "audio-busy", "audio-hardware", "language-unavailable", "voice-unavailable", "network"].includes(code);
-        if (hardFail && cloudFallbackRef.current && !fallbackTriggeredRef.current) {
-          fallbackTriggeredRef.current = true;
-          try { window.speechSynthesis.cancel(); } catch { /* noop */ }
-          cloudFallbackRef.current(token);
+        if (hardFail) {
+          activeRef.current = false;
+          stopKeepAlive();
+          setState("idle");
+          setNotice(reco ?? copy.voiceUnavailable);
           return;
         }
         // Try to keep going — skip the bad chunk.
         chunkIndexRef.current += 1;
         if (chunkIndexRef.current >= chunksRef.current.length) {
-          if (cloudFallbackRef.current && !fallbackTriggeredRef.current && !startedRef.current) {
-            fallbackTriggeredRef.current = true;
-            cloudFallbackRef.current(token);
-            return;
-          }
           activeRef.current = false;
           stopKeepAlive();
           setState("idle");
@@ -398,92 +353,6 @@ export function VoiceOutput({
     [supported, voices, langPrefix, startKeepAlive, stopKeepAlive, recommendationFor, copy.voiceUnavailable],
   );
 
-  const playCloudAudio = useCallback(async (token: number) => {
-    clearCloudAudio();
-    const audioToken = audioTokenRef.current;
-    const textToRead = speechText.trim();
-    if (!textToRead || stoppedRef.current || token !== playTokenRef.current) return;
-
-    try {
-      const audio = new Audio();
-      audioRef.current = audio;
-      audio.src = SILENT_WAV;
-      audio.volume = 0;
-      const unlock = audio.play().catch(() => undefined);
-      setState("playing");
-      setProgress(0.08);
-      setNotice(null);
-
-      let blob: Blob | null = cloudTtsCache.get(textToRead) ?? null;
-      if (!blob) {
-        const { supabase } = await import("@/integrations/supabase/client");
-        const { data: sessionData } = await supabase.auth.getSession();
-        const accessToken = sessionData.session?.access_token;
-        const ttsHeaders: Record<string, string> = { "content-type": "application/json" };
-        if (accessToken) ttsHeaders.Authorization = `Bearer ${accessToken}`;
-        const response = await fetch("/api/tts", {
-          method: "POST",
-          headers: ttsHeaders,
-          body: JSON.stringify({ text: textToRead }),
-        });
-        if (!response.ok) throw new Error(`tts-${response.status}`);
-        blob = await response.blob();
-        rememberCloudAudio(textToRead, blob);
-      }
-
-      if (stoppedRef.current || token !== playTokenRef.current || audioToken !== audioTokenRef.current) return;
-
-      const url = URL.createObjectURL(blob);
-      audioUrlRef.current = url;
-      await unlock;
-      audio.src = url;
-      audio.volume = 1;
-      audio.playbackRate = speedRef.current;
-      audio.onloadedmetadata = () => setProgress(0.12);
-      audio.ontimeupdate = () => {
-        if (audio.duration > 0) setProgress(Math.min(0.98, audio.currentTime / audio.duration));
-      };
-      audio.onended = () => {
-        if (token !== playTokenRef.current) return;
-        activeRef.current = false;
-        setProgress(1);
-        setState("idle");
-        setNotice(null);
-        clearCloudAudio();
-      };
-      audio.onerror = () => {
-        if (token !== playTokenRef.current) return;
-        activeRef.current = false;
-        setState("idle");
-        setNotice(appLang === "ar" ? "فشل تشغيل الصوت. جرّب مرة أخرى." : "Voice playback failed. Try again.");
-        clearCloudAudio();
-      };
-      await audio.play();
-      setNotice(null);
-    } catch (err) {
-      if (token !== playTokenRef.current) return;
-      clearCloudAudio();
-      const isRateLimit = err instanceof Error && err.message === "tts-429";
-      // Fall back to the browser's built-in voice so the user still hears something.
-      if (supported) {
-        setNotice(
-          isRateLimit
-            ? (appLang === "ar" ? "تم تجاوز حصة الصوت السحابي مؤقتاً — أستخدم صوت المتصفح." : "Cloud voice quota hit — using the browser voice instead.")
-            : (appLang === "ar" ? "تعذر الصوت السحابي — أستخدم صوت المتصفح." : "Cloud voice unavailable — using the browser voice instead."),
-        );
-        try { window.speechSynthesis.cancel(); } catch { /* noop */ }
-        window.setTimeout(() => { if (token === playTokenRef.current) speakChunk(token); }, 120);
-        return;
-      }
-      setState("idle");
-      setNotice(
-        isRateLimit
-          ? (appLang === "ar" ? "تم تجاوز حصة الصوت اليومية. جرّب بعد قليل." : "Daily voice quota reached. Try again shortly.")
-          : (appLang === "ar" ? "تعذر إنشاء الصوت الآن. حاول مرة أخرى." : "Could not create voice audio. Try again."),
-      );
-    }
-  }, [appLang, clearCloudAudio, speechText, supported, speakChunk]);
-
   const stop = useCallback(
     (silent = false) => {
       stoppedRef.current = true;
@@ -492,7 +361,6 @@ export function VoiceOutput({
       chunksRef.current = [];
       chunkIndexRef.current = 0;
       stopKeepAlive();
-      clearCloudAudio();
       if (watchdogRef.current != null) { window.clearTimeout(watchdogRef.current); watchdogRef.current = null; }
       setProgress(0);
       if (supported) {
@@ -500,15 +368,12 @@ export function VoiceOutput({
       }
       if (!silent) setState("idle");
     },
-    [clearCloudAudio, supported, stopKeepAlive],
+    [supported, stopKeepAlive],
   );
 
-  // Keep the ref pointing at the latest cloud playback function so speakChunk
-  // can hand off silently without a circular dep.
-  useEffect(() => { cloudFallbackRef.current = playCloudAudio; }, [playCloudAudio]);
 
   const createAndPlay = useCallback(() => {
-    if ((!supported && !cloudVoiceSupported) || !speechText.trim()) return;
+    if (!supported || !speechText.trim()) return;
     const chunks = splitForSpeech(speechText);
     if (!chunks.length) return;
 
@@ -519,7 +384,6 @@ export function VoiceOutput({
     activeRef.current = true;
     chunksRef.current = chunks;
     chunkIndexRef.current = 0;
-    fallbackTriggeredRef.current = false;
     startedRef.current = false;
     if (watchdogRef.current != null) { window.clearTimeout(watchdogRef.current); watchdogRef.current = null; }
     setProgress(0);
@@ -528,18 +392,7 @@ export function VoiceOutput({
 
     window.dispatchEvent(new CustomEvent(VOICE_OUTPUT_START, { detail: { id: instanceIdRef.current } }));
 
-    // Astra policy: PRIMARY voice path is the browser/device speech engine
-    // (free, unlimited, neural voices). Cloud TTS at /api/tts is a SECONDARY
-    // fallback that only activates if the browser engine is unsupported,
-    // missing a needed voice, or fails at runtime. Cached blobs mean replaying
-    // the same message never re-spends tokens.
-
-    // If the browser doesn't support speechSynthesis at all, go straight to cloud.
-    if (!supported) {
-      fallbackTriggeredRef.current = true;
-      playCloudAudio(token);
-      return;
-    }
+    // Astra policy: voice output stays fully local through the browser/device speech engine.
 
     // Chrome has a known race: speak() right after cancel() can swallow the
     // first utterance. Give the engine a tick to drain before queueing.
@@ -548,27 +401,19 @@ export function VoiceOutput({
       if (token === playTokenRef.current) speakChunk(token);
     }, 120);
 
-    // Watchdog: if no utterance has actually started speaking after ~2.2s,
-    // silently switch to cloud TTS so the user always hears the message.
+    // Watchdog: if no utterance has actually started after ~2.2s, stop cleanly.
     watchdogRef.current = window.setTimeout(() => {
       if (token !== playTokenRef.current) return;
-      if (startedRef.current || fallbackTriggeredRef.current) return;
-      fallbackTriggeredRef.current = true;
-      try { window.speechSynthesis.cancel(); } catch { /* noop */ }
-      playCloudAudio(token);
+      if (startedRef.current) return;
+      activeRef.current = false;
+      setState("idle");
+      setNotice(copy.voiceUnavailable);
     }, 2200);
-  }, [cloudVoiceSupported, playCloudAudio, speechText, speakChunk, supported]);
+  }, [copy.voiceUnavailable, speechText, speakChunk, supported]);
 
   const playOrResume = () => {
-    if (!supported && !cloudVoiceSupported) return;
+    if (!supported) return;
     if (state === "paused") {
-      // Cloud <audio> path resumes cleanly.
-      if (audioRef.current) {
-        void audioRef.current.play();
-        setState("playing");
-        return;
-      }
-      if (!supported) return;
       // Chrome's speechSynthesis.resume() is unreliable after a pause —
       // it often returns without actually speaking. Try resume first, then
       // verify after a tick; if nothing is speaking, restart from the
@@ -597,8 +442,7 @@ export function VoiceOutput({
     createAndPlay();
   };
   const pause = () => {
-    if (!supported && !audioRef.current) return;
-    if (audioRef.current) audioRef.current.pause();
+    if (!supported) return;
     // Stop the keep-alive pump first — otherwise its pause/resume cycle
     // fights with the user's pause and the audio resumes on its own.
     stopKeepAlive();
@@ -634,14 +478,13 @@ export function VoiceOutput({
       if (!activeRef.current) return;
       stoppedRef.current = true;
       activeRef.current = false;
-      clearCloudAudio();
       stopKeepAlive();
       setState("idle");
       setProgress(0);
     };
     window.addEventListener(VOICE_OUTPUT_START, onOther);
     return () => window.removeEventListener(VOICE_OUTPUT_START, onOther);
-  }, [clearCloudAudio, stopKeepAlive]);
+  }, [stopKeepAlive]);
 
   // Stop on unmount.
   useEffect(() => () => { stop(true); }, [stop]);
@@ -654,10 +497,6 @@ export function VoiceOutput({
     // heard the first word ("Hello") twice.
     if (prevSpeedRef.current === speed) return;
     prevSpeedRef.current = speed;
-    if (audioRef.current) {
-      audioRef.current.playbackRate = speed;
-      return;
-    }
     if (state === "playing" && activeRef.current) {
       const remaining = chunksRef.current.slice(chunkIndexRef.current);
       chunksRef.current = remaining;
@@ -670,7 +509,7 @@ export function VoiceOutput({
     }
   }, [speed, state, speakChunk]);
 
-  if ((!supported && !cloudVoiceSupported) || !speechText.trim()) return null;
+  if (!supported || !speechText.trim()) return null;
 
   return (
     <div className="mt-3 rounded-xl border border-border/60 bg-background/35 p-2" dir={appLang === "ar" ? "rtl" : "ltr"}>
