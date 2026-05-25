@@ -484,7 +484,7 @@ export function VoiceOutput({
     };
     window.addEventListener(VOICE_OUTPUT_START, onOther);
     return () => window.removeEventListener(VOICE_OUTPUT_START, onOther);
-  }, [clearCloudAudio, stopKeepAlive]);
+  }, [stopKeepAlive]);
 
   // Stop on unmount.
   useEffect(() => () => { stop(true); }, [stop]);
