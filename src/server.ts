@@ -14,7 +14,10 @@ async function getServerEntry(): Promise<ServerEntry> {
   if (!serverEntryPromise) {
     serverEntryPromise = import("@tanstack/react-start/server-entry").then(
       (m) => ((m as { default?: ServerEntry }).default ?? (m as unknown as ServerEntry)),
-    );
+    ).catch((error) => {
+      serverEntryPromise = undefined;
+      throw error;
+    });
   }
   return serverEntryPromise;
 }
@@ -75,7 +78,7 @@ export default {
       const response = await handler.fetch(request, env, ctx);
       return await normalizeCatastrophicSsrResponse(response);
     } catch (error) {
-      console.error(error);
+      console.error(`[SSR] ${request.method} ${new URL(request.url).pathname} failed`, error);
       return brandedErrorResponse();
     }
   },
