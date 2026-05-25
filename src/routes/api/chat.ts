@@ -67,6 +67,13 @@ function buildSystem(forcedLang?: "ar" | "en" | null, preferredLang?: "ar" | "en
   return BASE_SYSTEM + extra;
 }
 
+function errorStatus(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const fields = error as Record<string, unknown>;
+  const value = fields.statusCode ?? fields.status ?? fields.responseStatus;
+  return typeof value === "number" ? value : null;
+}
+
 export const Route = createFileRoute("/api/chat")({
   server: {
     handlers: {
@@ -142,6 +149,7 @@ export const Route = createFileRoute("/api/chat")({
           let text = "";
           let succeeded = false;
           let lastError: unknown = null;
+          let exhaustedStatus: number | null = null;
           for (const { model, spec } of chain) {
             try {
               const res = await generateText({
@@ -158,12 +166,23 @@ export const Route = createFileRoute("/api/chat")({
             } catch (err) {
               console.warn(`[astra] ${spec.label} failed:`, err instanceof Error ? err.message : err);
               lastError = err;
+              exhaustedStatus = errorStatus(err) ?? exhaustedStatus;
               continue;
             }
           }
 
           if (!succeeded) {
             console.error("[astra] all providers exhausted", lastError);
+            if (exhaustedStatus === 429) {
+              return new Response(JSON.stringify({ error: "Astra is receiving too many requests. Please try again shortly." }), {
+                status: 429, headers: { "content-type": "application/json" },
+              });
+            }
+            if (exhaustedStatus === 402) {
+              return new Response(JSON.stringify({ error: "Astra needs more AI credits before it can answer again." }), {
+                status: 402, headers: { "content-type": "application/json" },
+              });
+            }
             return new Response(JSON.stringify({ error: "Astra is busy right now. Please try again in a moment." }), {
               status: 503, headers: { "content-type": "application/json" },
             });

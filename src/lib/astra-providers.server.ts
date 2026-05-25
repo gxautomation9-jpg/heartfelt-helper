@@ -15,7 +15,18 @@ function gemini(keyName: string, modelId: string) {
   const provider = createOpenAICompatible({
     name: "gemini",
     baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
-    headers: { Authorization: `Bearer ${key}` },
+    apiKey: key,
+  });
+  return provider(modelId);
+}
+
+function lovableAi(modelId: string) {
+  const key = getServerEnv("LOVABLE_API_KEY");
+  if (!key) return null;
+  const provider = createOpenAICompatible({
+    name: "lovable-ai",
+    baseURL: "https://ai.gateway.lovable.dev/v1",
+    apiKey: key,
   });
   return provider(modelId);
 }
@@ -26,13 +37,15 @@ function xai(modelId: string) {
   const provider = createOpenAICompatible({
     name: "xai",
     baseURL: "https://api.x.ai/v1",
-    headers: { Authorization: `Bearer ${key}` },
+    apiKey: key,
   });
   return provider(modelId);
 }
 
 // Ordered hierarchy: strongest first, with key rotation + cross-provider fallback.
 export const PROVIDER_CHAIN: ProviderSpec[] = [
+  { id: "lovable-default", label: "lovable-ai-default", build: () => lovableAi("google/gemini-3-flash-preview") },
+  { id: "lovable-fast", label: "lovable-ai-fast", build: () => lovableAi("google/gemini-2.5-flash") },
   { id: "g25p-1", label: "gemini-2.5-pro#1",   build: () => gemini("GEMINI_API_KEY_1", "gemini-2.5-pro") },
   { id: "g25p-2", label: "gemini-2.5-pro#2",   build: () => gemini("GEMINI_API_KEY_2", "gemini-2.5-pro") },
   { id: "g25p-3", label: "gemini-2.5-pro#3",   build: () => gemini("GEMINI_API_KEY_3", "gemini-2.5-pro") },
