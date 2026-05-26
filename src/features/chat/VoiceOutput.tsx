@@ -76,41 +76,6 @@ function splitForSpeech(text: string) {
 
 type LangChunk = { text: string; lang: "ar" | "en" };
 
-// Split a chunk into runs of the same language so mixed-language assistant
-// replies switch to the correct voice for each run.
-function splitByLanguage(chunk: string, fallbackLang: "ar" | "en"): LangChunk[] {
-  const runs: LangChunk[] = [];
-  // Tokenise on whitespace but keep an Arabic/Latin classification per token.
-  const tokens = chunk.split(/(\s+)/);
-  let buf = "";
-  let bufLang: "ar" | "en" | null = null;
-  for (const tok of tokens) {
-    if (!tok) continue;
-    if (/^\s+$/.test(tok)) { buf += tok; continue; }
-    const hasAr = /[\u0600-\u06FF]/.test(tok);
-    const hasLatin = /[A-Za-z]/.test(tok);
-    const lang: "ar" | "en" | null = hasAr ? "ar" : hasLatin ? "en" : null;
-    if (lang == null) { buf += tok; continue; }
-    if (bufLang == null) { bufLang = lang; buf += tok; continue; }
-    if (lang === bufLang) { buf += tok; continue; }
-    const out = buf.trim();
-    if (out) runs.push({ text: out, lang: bufLang });
-    buf = tok;
-    bufLang = lang;
-  }
-  const out = buf.trim();
-  if (out && bufLang) runs.push({ text: out, lang: bufLang });
-  if (!runs.length) runs.push({ text: chunk, lang: dominantLanguage(chunk, fallbackLang) });
-  // Merge tiny runs (<3 chars) into the previous one to avoid micro-switches.
-  const merged: LangChunk[] = [];
-  for (const r of runs) {
-    const prev = merged[merged.length - 1];
-    if (prev && r.text.length < 3) prev.text += " " + r.text;
-    else merged.push({ ...r });
-  }
-  return merged;
-}
-
 function getVoices() {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return [];
   return window.speechSynthesis.getVoices();
