@@ -1,5 +1,6 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { getServerEnv } from "@/lib/server-env";
+import { createLovableAiGatewayProvider } from "@/lib/ai-gateway";
 import type { LanguageModel } from "ai";
 
 // Provider order = silent fallback priority. Users never see these names.
@@ -31,16 +32,25 @@ function xai(modelId: string) {
   return provider(modelId);
 }
 
-// Ordered hierarchy: 2x Gemini accounts + 1x xAI (Grok). No Lovable AI.
+function lovable(modelId: string) {
+  const key = getServerEnv("LOVABLE_API_KEY");
+  if (!key) return null;
+  return createLovableAiGatewayProvider(key)(modelId);
+}
+
+// Ordered hierarchy: user keys first, managed gateway last as an emergency
+// safety net so normal users do not see downtime if one quota/model is blocked.
 export const PROVIDER_CHAIN: ProviderSpec[] = [
   { id: "g25p-1",   label: "gemini-2.5-pro#1",        build: () => gemini("GEMINI_API_KEY_1", "gemini-2.5-pro") },
   { id: "g25p-2",   label: "gemini-2.5-pro#2",        build: () => gemini("GEMINI_API_KEY_2", "gemini-2.5-pro") },
-  { id: "grok-fast",label: "grok-4-fast",             build: () => xai("grok-4-fast-reasoning") },
   { id: "g25f-1",   label: "gemini-2.5-flash#1",      build: () => gemini("GEMINI_API_KEY_1", "gemini-2.5-flash") },
   { id: "g25f-2",   label: "gemini-2.5-flash#2",      build: () => gemini("GEMINI_API_KEY_2", "gemini-2.5-flash") },
-  { id: "grok-2",   label: "grok-2",                  build: () => xai("grok-2-1212") },
   { id: "g25fl-1",  label: "gemini-2.5-flash-lite#1", build: () => gemini("GEMINI_API_KEY_1", "gemini-2.5-flash-lite") },
   { id: "g25fl-2",  label: "gemini-2.5-flash-lite#2", build: () => gemini("GEMINI_API_KEY_2", "gemini-2.5-flash-lite") },
+  { id: "grok-fast",label: "grok-4-fast",             build: () => xai("grok-4-fast-reasoning") },
+  { id: "grok-2",   label: "grok-2",                  build: () => xai("grok-2-1212") },
+  { id: "lg3f",     label: "managed-gemini-flash",    build: () => lovable("google/gemini-3-flash-preview") },
+  { id: "lg25f",    label: "managed-gemini-2.5-flash", build: () => lovable("google/gemini-2.5-flash") },
 ];
 
 export type AttemptResult = {
