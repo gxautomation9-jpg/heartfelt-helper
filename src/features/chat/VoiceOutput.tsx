@@ -13,6 +13,13 @@ import { VoiceTestDialog } from "@/features/chat/VoiceTestDialog";
 type PlaybackState = "idle" | "playing" | "paused";
 const VOICE_OUTPUT_START = "astra-voice-output-start";
 const MAX_CHUNK_LENGTH = 180;
+const LANG_LOCK_MARKERS = [
+  /FORCED LANGUAGE LOCK:/i,
+  /User preference hint:/i,
+  /<user_memory>/i,
+  /Identity rules \(STRICT\):/i,
+  /Language intelligence rules \(CRITICAL\):/i,
+];
 
 function isArabic(text: string) {
   return /[\u0600-\u06FF]/.test(text);
@@ -20,6 +27,9 @@ function isArabic(text: string) {
 
 function normalizeSpeechText(text: string) {
   return text
+    .split(/\n+/)
+    .filter((line) => !LANG_LOCK_MARKERS.some((pattern) => pattern.test(line)))
+    .join("\n")
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/!\[[^\]]*]\([^)]+\)/g, " ")
@@ -28,6 +38,13 @@ function normalizeSpeechText(text: string) {
     .replace(/[>*_~|]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function dominantLanguage(text: string, fallback: "ar" | "en") {
+  const arabic = (text.match(/[\u0600-\u06FF]/g) ?? []).length;
+  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
+  if (arabic === 0 && latin === 0) return fallback;
+  return arabic >= latin ? "ar" : "en";
 }
 
 function splitForSpeech(text: string) {
@@ -58,41 +75,6 @@ function splitForSpeech(text: string) {
 }
 
 type LangChunk = { text: string; lang: "ar" | "en" };
-
-// Split a chunk into runs of the same language so mixed-language assistant
-// replies switch to the correct voice for each run.
-function splitByLanguage(chunk: string): LangChunk[] {
-  const runs: LangChunk[] = [];
-  // Tokenise on whitespace but keep an Arabic/Latin classification per token.
-  const tokens = chunk.split(/(\s+)/);
-  let buf = "";
-  let bufLang: "ar" | "en" | null = null;
-  for (const tok of tokens) {
-    if (!tok) continue;
-    if (/^\s+$/.test(tok)) { buf += tok; continue; }
-    const hasAr = /[\u0600-\u06FF]/.test(tok);
-    const hasLatin = /[A-Za-z]/.test(tok);
-    const lang: "ar" | "en" | null = hasAr ? "ar" : hasLatin ? "en" : null;
-    if (lang == null) { buf += tok; continue; }
-    if (bufLang == null) { bufLang = lang; buf += tok; continue; }
-    if (lang === bufLang) { buf += tok; continue; }
-    const out = buf.trim();
-    if (out) runs.push({ text: out, lang: bufLang });
-    buf = tok;
-    bufLang = lang;
-  }
-  const out = buf.trim();
-  if (out && bufLang) runs.push({ text: out, lang: bufLang });
-  if (!runs.length) runs.push({ text: chunk, lang: isArabic(chunk) ? "ar" : "en" });
-  // Merge tiny runs (<3 chars) into the previous one to avoid micro-switches.
-  const merged: LangChunk[] = [];
-  for (const r of runs) {
-    const prev = merged[merged.length - 1];
-    if (prev && r.text.length < 3) prev.text += " " + r.text;
-    else merged.push({ ...r });
-  }
-  return merged;
-}
 
 function getVoices() {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return [];
@@ -236,11 +218,13 @@ export function VoiceOutput({
       const pool = latestVoices.length ? latestVoices : voices;
       const currentPrefs = loadVoicePrefs();
 
-      // Per-language run detection: pick the dominant language of the chunk,
-      // but if it contains both scripts, route to the run's language voice.
-      const runs = splitByLanguage(chunk);
+      // Keep one browser utterance per sentence chunk. Splitting the same AI
+      // answer into English + Arabic runs made mixed/bilingual replies sound
+      // like repeated output. The assistant is instructed to answer in one
+      // language, so choose the dominant script and read the full chunk once.
+      const runLang = dominantLanguage(chunk, langPrefix);
+      const runs: LangChunk[] = [{ text: chunk, lang: runLang }];
       const primary = runs[0];
-      const runLang: "ar" | "en" = primary?.lang ?? langPrefix;
       const selectedVoice = pickBestVoice(pool, runLang, currentPrefs);
 
       // Pre-flight: if ANY run in this chunk lacks a matching device voice,
@@ -267,9 +251,8 @@ export function VoiceOutput({
 
 
 
-      // If the chunk had multiple language runs, queue the remainder as
-      // separate utterances so each run gets the right voice — and only
-      // advance the chunk index when the last run finishes.
+      // A chunk is spoken once with its dominant language voice. This avoids
+      // the same answer being read as both Arabic and English.
       const extraRuns = runs.slice(1);
       let runsRemaining = extraRuns.length;
 

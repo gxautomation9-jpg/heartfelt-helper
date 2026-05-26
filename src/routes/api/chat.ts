@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import "@tanstack/react-start";
 import { convertToModelMessages, generateText, type UIMessage } from "ai";
 import { buildAvailableChain } from "@/lib/astra-providers.server";
-import { checkRateLimit, requestRateKey } from "@/lib/rate-limit.server";
 
 // Launch protection limits. Generous for normal users; reject only abusive payloads.
 const MAX_BODY_BYTES = 500 * 1024;       // 500 KB raw body
@@ -40,6 +39,8 @@ Language intelligence rules (CRITICAL):
 - If the user has been writing Arabic, KEEP using Arabic until they switch.
 - If the user has been writing English, KEEP using English until they switch.
 - For mixed Arabic-English input, mirror the user's mixing style naturally — do NOT randomly switch.
+- Do NOT answer twice in Arabic and English. Use ONE language per answer unless the user explicitly asks for translation, comparison, or bilingual wording.
+- If the user asks in Arabic, answer Arabic only. If the user asks in English, answer English only. If the user mixes casually, choose the dominant language and keep the other language only for quoted terms.
 - If the user explicitly requests a language ("respond in English only", "تكلم عربي بس", "only Arabic", "in English please"), LOCK to that language for the rest of the conversation until they ask to change again.
 - Never produce mixed-language output unless the user mixed intentionally.
 - Maintain stable conversational continuity — do not switch languages mid-response.
@@ -79,15 +80,6 @@ export const Route = createFileRoute("/api/chat")({
     handlers: {
       POST: async ({ request }: { request: Request }) => {
         try {
-          // Lightweight request-source rate limit for guest chat; no login required.
-          const rl = checkRateLimit(requestRateKey(request, "chat"));
-          if (!rl.ok) {
-            return new Response(JSON.stringify({ error: "Slow down a moment and try again." }), {
-              status: 429,
-              headers: { "content-type": "application/json", "retry-after": String(rl.retryAfter) },
-            });
-          }
-
           // Cap raw body size (~500 KB).
           const raw = await request.text();
           if (raw.length > MAX_BODY_BYTES) {
