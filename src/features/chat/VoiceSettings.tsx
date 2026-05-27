@@ -11,7 +11,15 @@ export type VoicePrefs = {
 const STORAGE_KEY = "astra-voice-prefs-v1";
 const EVENT = "astra-voice-prefs-changed";
 
-const DEFAULT: VoicePrefs = { arVoiceURI: null, enVoiceURI: null, preferFemale: true };
+// Default to the curated cloud voices so the very first playback always works,
+// even on browsers that ship without any local Arabic voice (most Chrome
+// installs on Windows/Linux). Users can switch to a local voice from the
+// picker if they prefer.
+const DEFAULT: VoicePrefs = {
+  arVoiceURI: "cloud:ar-eg-female",
+  enVoiceURI: "cloud:en-us-female",
+  preferFemale: true,
+};
 
 export function loadVoicePrefs(): VoicePrefs {
   if (typeof window === "undefined") return DEFAULT;
