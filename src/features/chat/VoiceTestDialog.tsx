@@ -13,12 +13,14 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { loadVoicePrefs, saveVoicePrefs, pickBestVoice } from "@/features/chat/VoiceSettings";
+import { loadVoicePrefs, saveVoicePrefs, pickBestVoice, CLOUD_VOICES, isCloudVoiceURI, type CloudVoice } from "@/features/chat/VoiceSettings";
 
 const SAMPLES = {
   en: "Hello, I'm Astra. This is a quick test of my English voice — clear, calm, and natural.",
   ar: "مرحباً، أنا أسترا. هذا اختبار سريع لصوتي العربي — واضح، هادئ، وطبيعي.",
 };
+
+type PickerVoice = SpeechSynthesisVoice | CloudVoice;
 
 export function VoiceTestDialog({ appLang, trigger }: { appLang: "ar" | "en"; trigger: React.ReactNode }) {
   const [open, setOpen] = useState(false);
