@@ -101,7 +101,7 @@ export function VoiceTestDialog({ appLang, trigger }: { appLang: "ar" | "en"; tr
 
   const stop = () => stopAll();
 
-  const select = (voice: SpeechSynthesisVoice, lang: "ar" | "en") => {
+  const select = (voice: PickerVoice, lang: "ar" | "en") => {
     const patch = lang === "ar" ? { arVoiceURI: voice.voiceURI } : { enVoiceURI: voice.voiceURI };
     saveVoicePrefs(patch);
     setPrefs((p) => ({ ...p, ...patch }));
@@ -118,7 +118,7 @@ export function VoiceTestDialog({ appLang, trigger }: { appLang: "ar" | "en"; tr
     test(v, lang);
   };
 
-  const renderList = (list: SpeechSynthesisVoice[], lang: "ar" | "en") => {
+  const renderList = (list: PickerVoice[], lang: "ar" | "en") => {
     const selectedURI = lang === "ar" ? prefs.arVoiceURI : prefs.enVoiceURI;
     const auto = pickBestVoice(voices, lang, prefs);
     if (list.length === 0) {
