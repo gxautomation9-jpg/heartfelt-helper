@@ -396,7 +396,7 @@ export function VoiceOutput({
 
       window.speechSynthesis.speak(utterance);
     },
-    [supported, voices, langPrefix, startKeepAlive, stopKeepAlive, recommendationFor, copy.voiceUnavailable],
+    [supported, voices, langPrefix, startKeepAlive, stopKeepAlive, recommendationFor, copy.voiceUnavailable, copy.recoNetwork],
   );
 
   const stop = useCallback(
