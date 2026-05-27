@@ -349,7 +349,7 @@ export function VoiceOutput({
           u.rate = Math.min(1.25, speedRef.current * 1.08);
           u.pitch = next.lang === "ar" ? 1.18 : 1.22;
           u.volume = 1;
-          if (v && v.lang.toLowerCase().startsWith(next.lang)) u.voice = v;
+          if (v && !isCloudVoiceURI(v.voiceURI) && v.lang.toLowerCase().startsWith(next.lang)) u.voice = v as SpeechSynthesisVoice;
 
           // Re-bind to the same handlers so the chain advances correctly.
           u.onend = utterance.onend;
