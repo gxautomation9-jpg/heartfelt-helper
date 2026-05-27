@@ -13,12 +13,14 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { loadVoicePrefs, saveVoicePrefs, pickBestVoice } from "@/features/chat/VoiceSettings";
+import { loadVoicePrefs, saveVoicePrefs, pickBestVoice, CLOUD_VOICES, isCloudVoiceURI, type CloudVoice } from "@/features/chat/VoiceSettings";
 
 const SAMPLES = {
   en: "Hello, I'm Astra. This is a quick test of my English voice — clear, calm, and natural.",
   ar: "مرحباً، أنا أسترا. هذا اختبار سريع لصوتي العربي — واضح، هادئ، وطبيعي.",
 };
+
+type PickerVoice = SpeechSynthesisVoice | CloudVoice;
 
 export function VoiceTestDialog({ appLang, trigger }: { appLang: "ar" | "en"; trigger: React.ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -26,6 +28,7 @@ export function VoiceTestDialog({ appLang, trigger }: { appLang: "ar" | "en"; tr
   const [prefs, setPrefs] = useState(() => loadVoicePrefs());
   const [playingURI, setPlayingURI] = useState<string | null>(null);
   const utterRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const cloudAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const supported = typeof window !== "undefined" && "speechSynthesis" in window;
 
@@ -43,14 +46,48 @@ export function VoiceTestDialog({ appLang, trigger }: { appLang: "ar" | "en"; tr
     };
   }, [open, supported]);
 
-  const arVoices = useMemo(() => voices.filter((v) => v.lang.toLowerCase().startsWith("ar")), [voices]);
-  const enVoices = useMemo(() => voices.filter((v) => v.lang.toLowerCase().startsWith("en")), [voices]);
+  const arVoices = useMemo<PickerVoice[]>(
+    () => [
+      ...CLOUD_VOICES.filter((v) => v.lang.toLowerCase().startsWith("ar")),
+      ...voices.filter((v) => v.lang.toLowerCase().startsWith("ar")),
+    ],
+    [voices],
+  );
+  const enVoices = useMemo<PickerVoice[]>(
+    () => [
+      ...CLOUD_VOICES.filter((v) => v.lang.toLowerCase().startsWith("en")),
+      ...voices.filter((v) => v.lang.toLowerCase().startsWith("en")),
+    ],
+    [voices],
+  );
 
-  const test = (voice: SpeechSynthesisVoice, lang: "ar" | "en") => {
+  const stopAll = () => {
+    if (supported) {
+      try { window.speechSynthesis.cancel(); } catch { /* noop */ }
+    }
+    if (cloudAudioRef.current) {
+      try { cloudAudioRef.current.pause(); cloudAudioRef.current.src = ""; } catch { /* noop */ }
+      cloudAudioRef.current = null;
+    }
+    setPlayingURI(null);
+  };
+
+  const test = (voice: PickerVoice, lang: "ar" | "en") => {
+    stopAll();
+    if (isCloudVoiceURI(voice.voiceURI)) {
+      const audio = new Audio(
+        `/api/tts?text=${encodeURIComponent(SAMPLES[lang])}&voice=${encodeURIComponent(voice.voiceURI)}`,
+      );
+      cloudAudioRef.current = audio;
+      audio.onplay = () => setPlayingURI(voice.voiceURI);
+      audio.onended = () => setPlayingURI(null);
+      audio.onerror = () => setPlayingURI(null);
+      audio.play().catch(() => setPlayingURI(null));
+      return;
+    }
     if (!supported) return;
-    window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(SAMPLES[lang]);
-    u.voice = voice;
+    u.voice = voice as SpeechSynthesisVoice;
     u.lang = voice.lang;
     u.rate = 1;
     u.pitch = 1;
@@ -62,13 +99,9 @@ export function VoiceTestDialog({ appLang, trigger }: { appLang: "ar" | "en"; tr
     window.setTimeout(() => window.speechSynthesis.speak(u), 60);
   };
 
-  const stop = () => {
-    if (!supported) return;
-    window.speechSynthesis.cancel();
-    setPlayingURI(null);
-  };
+  const stop = () => stopAll();
 
-  const select = (voice: SpeechSynthesisVoice, lang: "ar" | "en") => {
+  const select = (voice: PickerVoice, lang: "ar" | "en") => {
     const patch = lang === "ar" ? { arVoiceURI: voice.voiceURI } : { enVoiceURI: voice.voiceURI };
     saveVoicePrefs(patch);
     setPrefs((p) => ({ ...p, ...patch }));
@@ -85,7 +118,7 @@ export function VoiceTestDialog({ appLang, trigger }: { appLang: "ar" | "en"; tr
     test(v, lang);
   };
 
-  const renderList = (list: SpeechSynthesisVoice[], lang: "ar" | "en") => {
+  const renderList = (list: PickerVoice[], lang: "ar" | "en") => {
     const selectedURI = lang === "ar" ? prefs.arVoiceURI : prefs.enVoiceURI;
     const auto = pickBestVoice(voices, lang, prefs);
     if (list.length === 0) {

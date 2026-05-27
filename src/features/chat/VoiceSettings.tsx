@@ -11,7 +11,15 @@ export type VoicePrefs = {
 const STORAGE_KEY = "astra-voice-prefs-v1";
 const EVENT = "astra-voice-prefs-changed";
 
-const DEFAULT: VoicePrefs = { arVoiceURI: null, enVoiceURI: null, preferFemale: true };
+// Default to the curated cloud voices so the very first playback always works,
+// even on browsers that ship without any local Arabic voice (most Chrome
+// installs on Windows/Linux). Users can switch to a local voice from the
+// picker if they prefer.
+const DEFAULT: VoicePrefs = {
+  arVoiceURI: "cloud:ar-eg-female",
+  enVoiceURI: "cloud:en-us-female",
+  preferFemale: true,
+};
 
 export function loadVoicePrefs(): VoicePrefs {
   if (typeof window === "undefined") return DEFAULT;
@@ -50,6 +58,84 @@ export function useVoicePrefs(): VoicePrefs {
     };
   }, []);
   return prefs;
+}
+
+// ---------- Curated cloud voices ----------
+// These are virtual SpeechSynthesisVoice-shaped entries served by /api/tts.
+// They are ALWAYS available regardless of which local voices the user has,
+// so installing more system voices never hides the cloud options. The list
+// focuses on energetic, natural-sounding voices with an Egyptian Arabic
+// accent for the AR side.
+export type CloudVoice = {
+  voiceURI: string;
+  name: string;
+  lang: string;
+  localService: false;
+  default: false;
+  isCloud: true;
+};
+
+export const CLOUD_VOICES: CloudVoice[] = [
+  {
+    voiceURI: "cloud:ar-eg-female",
+    name: "Astra Cloud — Egyptian Arabic (Female)",
+    lang: "ar-EG",
+    localService: false,
+    default: false,
+    isCloud: true,
+  },
+  {
+    voiceURI: "cloud:ar-eg-male",
+    name: "Astra Cloud — Egyptian Arabic (Male)",
+    lang: "ar-EG",
+    localService: false,
+    default: false,
+    isCloud: true,
+  },
+  {
+    voiceURI: "cloud:ar-sa-female",
+    name: "Astra Cloud — Modern Standard Arabic",
+    lang: "ar-SA",
+    localService: false,
+    default: false,
+    isCloud: true,
+  },
+  {
+    voiceURI: "cloud:en-us-female",
+    name: "Astra Cloud — English US (Female)",
+    lang: "en-US",
+    localService: false,
+    default: false,
+    isCloud: true,
+  },
+  {
+    voiceURI: "cloud:en-us-male",
+    name: "Astra Cloud — English US (Male)",
+    lang: "en-US",
+    localService: false,
+    default: false,
+    isCloud: true,
+  },
+  {
+    voiceURI: "cloud:en-gb-female",
+    name: "Astra Cloud — English UK (Female)",
+    lang: "en-GB",
+    localService: false,
+    default: false,
+    isCloud: true,
+  },
+];
+
+export function isCloudVoiceURI(uri: string | null | undefined): boolean {
+  return !!uri && uri.startsWith("cloud:");
+}
+
+// Merge local + cloud voices into a single picker list. Cloud voices are
+// listed first so they remain visible even when many local voices exist.
+export function mergeVoices(
+  local: SpeechSynthesisVoice[],
+): (SpeechSynthesisVoice | CloudVoice)[] {
+  return [...CLOUD_VOICES, ...local];
 }
 
 // ---------- Async voice loading (Chrome / Android Chrome quirk) ----------
@@ -169,20 +255,26 @@ function score(voice: SpeechSynthesisVoice, langPrefix: "ar" | "en", preferFemal
 
 // Cache best-pick per (langPrefix + prefs signature) so we don't re-sort the
 // voice list for every chunk of every message.
-const pickCache = new Map<string, SpeechSynthesisVoice | undefined>();
+const pickCache = new Map<string, SpeechSynthesisVoice | CloudVoice | undefined>();
 
 export function pickBestVoice(
   voices: SpeechSynthesisVoice[],
   langPrefix: "ar" | "en",
   prefs: VoicePrefs,
-): SpeechSynthesisVoice | undefined {
-  if (!voices.length) return undefined;
+): SpeechSynthesisVoice | CloudVoice | undefined {
   const saved = langPrefix === "ar" ? prefs.arVoiceURI : prefs.enVoiceURI;
-  if (saved) {
+
+  // Saved cloud voice — always available, doesn't depend on the browser list.
+  if (saved && isCloudVoiceURI(saved)) {
+    const cloud = CLOUD_VOICES.find((v) => v.voiceURI === saved);
+    if (cloud) return cloud;
+  }
+
+  if (saved && voices.length) {
     const exact = voices.find((v) => v.voiceURI === saved);
-    // Only honor a saved voice if it actually matches the requested language —
-    // otherwise an Arabic chunk would be spoken with the saved English voice
-    // and the engine silently skips the Arabic characters.
+    // Only honor a saved local voice if it actually matches the requested
+    // language — otherwise an Arabic chunk would be spoken with the saved
+    // English voice and the engine silently skips the Arabic characters.
     if (exact && exact.lang.toLowerCase().startsWith(langPrefix)) return exact;
   }
 
@@ -190,13 +282,20 @@ export function pickBestVoice(
   if (pickCache.has(cacheKey)) return pickCache.get(cacheKey);
 
   const matching = voices.filter((v) => v.lang.toLowerCase().startsWith(langPrefix));
-  if (!matching.length) {
-    pickCache.set(cacheKey, undefined);
-    return undefined;
+  if (matching.length) {
+    const best = [...matching].sort(
+      (a, b) => score(b, langPrefix, prefs.preferFemale) - score(a, langPrefix, prefs.preferFemale),
+    )[0];
+    pickCache.set(cacheKey, best);
+    return best;
   }
-  const best = [...matching].sort(
-    (a, b) => score(b, langPrefix, prefs.preferFemale) - score(a, langPrefix, prefs.preferFemale),
-  )[0];
-  pickCache.set(cacheKey, best);
-  return best;
+
+  // No matching local voice — fall back to the curated cloud voice so Arabic
+  // (or any unsupported language) still plays instead of silently failing.
+  const cloudFallback = CLOUD_VOICES.find((v) =>
+    v.lang.toLowerCase().startsWith(langPrefix) &&
+    (!prefs.preferFemale || v.voiceURI.endsWith("female")),
+  ) ?? CLOUD_VOICES.find((v) => v.lang.toLowerCase().startsWith(langPrefix));
+  pickCache.set(cacheKey, cloudFallback);
+  return cloudFallback;
 }

@@ -7,7 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { useVoicePrefs, pickBestVoice, loadVoicePrefs, awaitVoices, onVoicesChanged } from "@/features/chat/VoiceSettings";
+import { useVoicePrefs, pickBestVoice, loadVoicePrefs, awaitVoices, onVoicesChanged, isCloudVoiceURI } from "@/features/chat/VoiceSettings";
 import { VoiceTestDialog } from "@/features/chat/VoiceTestDialog";
 
 type PlaybackState = "idle" | "playing" | "paused";
@@ -128,6 +128,7 @@ export function VoiceOutput({
   const prevSpeedRef = useRef(speed);
   const startedRef = useRef(false);
   const watchdogRef = useRef<number | null>(null);
+  const cloudAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const prefs = useVoicePrefs();
   const speechText = useMemo(() => normalizeSpeechText(text), [text]);
@@ -227,6 +228,68 @@ export function VoiceOutput({
       const primary = runs[0];
       const selectedVoice = pickBestVoice(pool, runLang, currentPrefs);
 
+      // ---- Cloud voice branch: stream MP3 from /api/tts and play via <audio>.
+      // Cloud voices are always available (no install needed), so they're the
+      // safe path for Arabic on browsers without a local Arabic voice.
+      if (selectedVoice && isCloudVoiceURI(selectedVoice.voiceURI)) {
+        try { window.speechSynthesis.cancel(); } catch { /* noop */ }
+        const audio = new Audio(
+          `/api/tts?text=${encodeURIComponent(chunk)}&voice=${encodeURIComponent(selectedVoice.voiceURI)}`,
+        );
+        audio.playbackRate = Math.min(1.25, speedRef.current * 1.08);
+        audio.preload = "auto";
+        cloudAudioRef.current = audio;
+
+        setDiag((d) => ({
+          ...d,
+          voiceName: selectedVoice.name,
+          voiceURI: selectedVoice.voiceURI,
+          voiceLang: selectedVoice.lang,
+          chunkIndex: chunkIndexRef.current,
+          chunkCount: chunksRef.current.length,
+        }));
+
+        audio.onplay = () => {
+          if (token !== playTokenRef.current) return;
+          startedRef.current = true;
+          if (watchdogRef.current != null) { window.clearTimeout(watchdogRef.current); watchdogRef.current = null; }
+          activeRef.current = true;
+          setNotice(null);
+          setState("playing");
+        };
+        audio.onended = () => {
+          if (token !== playTokenRef.current || stoppedRef.current) return;
+          cloudAudioRef.current = null;
+          chunkIndexRef.current += 1;
+          setProgress(chunksRef.current.length ? chunkIndexRef.current / chunksRef.current.length : 1);
+          window.setTimeout(() => speakChunk(token), 60);
+        };
+        audio.onerror = () => {
+          if (token !== playTokenRef.current) return;
+          cloudAudioRef.current = null;
+          setDiag((d) => ({
+            ...d,
+            lastError: "cloud-tts-failed",
+            lastErrorChunkIndex: chunkIndexRef.current,
+            recommendation: copy.recoNetwork,
+          }));
+          // Skip the bad chunk and keep going.
+          chunkIndexRef.current += 1;
+          if (chunkIndexRef.current >= chunksRef.current.length) {
+            activeRef.current = false;
+            setState("idle");
+            if (!startedRef.current) setNotice(copy.voiceUnavailable);
+            return;
+          }
+          window.setTimeout(() => speakChunk(token), 60);
+        };
+        audio.play().catch(() => {
+          if (token !== playTokenRef.current) return;
+          setNotice(copy.recoNetwork);
+        });
+        return;
+      }
+
       // Pre-flight: if ANY run in this chunk lacks a matching device voice,
       // hand the whole message to cloud TTS. Otherwise mixed-language replies
       // silently drop the unsupported script (e.g. an English voice asked to
@@ -245,8 +308,8 @@ export function VoiceOutput({
       utterance.rate = Math.min(1.25, speedRef.current * 1.08);
       utterance.pitch = runLang === "ar" ? 1.18 : 1.22;
       utterance.volume = 1;
-      if (selectedVoice && selectedVoice.lang.toLowerCase().startsWith(runLang)) {
-        utterance.voice = selectedVoice;
+      if (selectedVoice && !isCloudVoiceURI(selectedVoice.voiceURI) && selectedVoice.lang.toLowerCase().startsWith(runLang)) {
+        utterance.voice = selectedVoice as SpeechSynthesisVoice;
       }
 
 
@@ -286,7 +349,7 @@ export function VoiceOutput({
           u.rate = Math.min(1.25, speedRef.current * 1.08);
           u.pitch = next.lang === "ar" ? 1.18 : 1.22;
           u.volume = 1;
-          if (v && v.lang.toLowerCase().startsWith(next.lang)) u.voice = v;
+          if (v && !isCloudVoiceURI(v.voiceURI) && v.lang.toLowerCase().startsWith(next.lang)) u.voice = v as SpeechSynthesisVoice;
 
           // Re-bind to the same handlers so the chain advances correctly.
           u.onend = utterance.onend;
@@ -333,7 +396,7 @@ export function VoiceOutput({
 
       window.speechSynthesis.speak(utterance);
     },
-    [supported, voices, langPrefix, startKeepAlive, stopKeepAlive, recommendationFor, copy.voiceUnavailable],
+    [supported, voices, langPrefix, startKeepAlive, stopKeepAlive, recommendationFor, copy.voiceUnavailable, copy.recoNetwork],
   );
 
   const stop = useCallback(
@@ -346,6 +409,10 @@ export function VoiceOutput({
       stopKeepAlive();
       if (watchdogRef.current != null) { window.clearTimeout(watchdogRef.current); watchdogRef.current = null; }
       setProgress(0);
+      if (cloudAudioRef.current) {
+        try { cloudAudioRef.current.pause(); cloudAudioRef.current.src = ""; } catch { /* noop */ }
+        cloudAudioRef.current = null;
+      }
       if (supported) {
         try { window.speechSynthesis.cancel(); } catch { /* noop */ }
       }
