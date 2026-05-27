@@ -52,6 +52,84 @@ export function useVoicePrefs(): VoicePrefs {
   return prefs;
 }
 
+// ---------- Curated cloud voices ----------
+// These are virtual SpeechSynthesisVoice-shaped entries served by /api/tts.
+// They are ALWAYS available regardless of which local voices the user has,
+// so installing more system voices never hides the cloud options. The list
+// focuses on energetic, natural-sounding voices with an Egyptian Arabic
+// accent for the AR side.
+export type CloudVoice = {
+  voiceURI: string;
+  name: string;
+  lang: string;
+  localService: false;
+  default: false;
+  isCloud: true;
+};
+
+export const CLOUD_VOICES: CloudVoice[] = [
+  {
+    voiceURI: "cloud:ar-eg-female",
+    name: "Astra Cloud — Egyptian Arabic (Female)",
+    lang: "ar-EG",
+    localService: false,
+    default: false,
+    isCloud: true,
+  },
+  {
+    voiceURI: "cloud:ar-eg-male",
+    name: "Astra Cloud — Egyptian Arabic (Male)",
+    lang: "ar-EG",
+    localService: false,
+    default: false,
+    isCloud: true,
+  },
+  {
+    voiceURI: "cloud:ar-sa-female",
+    name: "Astra Cloud — Modern Standard Arabic",
+    lang: "ar-SA",
+    localService: false,
+    default: false,
+    isCloud: true,
+  },
+  {
+    voiceURI: "cloud:en-us-female",
+    name: "Astra Cloud — English US (Female)",
+    lang: "en-US",
+    localService: false,
+    default: false,
+    isCloud: true,
+  },
+  {
+    voiceURI: "cloud:en-us-male",
+    name: "Astra Cloud — English US (Male)",
+    lang: "en-US",
+    localService: false,
+    default: false,
+    isCloud: true,
+  },
+  {
+    voiceURI: "cloud:en-gb-female",
+    name: "Astra Cloud — English UK (Female)",
+    lang: "en-GB",
+    localService: false,
+    default: false,
+    isCloud: true,
+  },
+];
+
+export function isCloudVoiceURI(uri: string | null | undefined): boolean {
+  return !!uri && uri.startsWith("cloud:");
+}
+
+// Merge local + cloud voices into a single picker list. Cloud voices are
+// listed first so they remain visible even when many local voices exist.
+export function mergeVoices(
+  local: SpeechSynthesisVoice[],
+): (SpeechSynthesisVoice | CloudVoice)[] {
+  return [...CLOUD_VOICES, ...local];
+}
+
 // ---------- Async voice loading (Chrome / Android Chrome quirk) ----------
 // speechSynthesis.getVoices() returns [] on first call in most browsers — the
 // list arrives asynchronously via the `voiceschanged` event. Wait for it with
