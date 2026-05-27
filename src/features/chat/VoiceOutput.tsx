@@ -308,8 +308,8 @@ export function VoiceOutput({
       utterance.rate = Math.min(1.25, speedRef.current * 1.08);
       utterance.pitch = runLang === "ar" ? 1.18 : 1.22;
       utterance.volume = 1;
-      if (selectedVoice && selectedVoice.lang.toLowerCase().startsWith(runLang)) {
-        utterance.voice = selectedVoice;
+      if (selectedVoice && !isCloudVoiceURI(selectedVoice.voiceURI) && selectedVoice.lang.toLowerCase().startsWith(runLang)) {
+        utterance.voice = selectedVoice as SpeechSynthesisVoice;
       }
 
 
