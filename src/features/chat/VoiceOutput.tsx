@@ -409,6 +409,10 @@ export function VoiceOutput({
       stopKeepAlive();
       if (watchdogRef.current != null) { window.clearTimeout(watchdogRef.current); watchdogRef.current = null; }
       setProgress(0);
+      if (cloudAudioRef.current) {
+        try { cloudAudioRef.current.pause(); cloudAudioRef.current.src = ""; } catch { /* noop */ }
+        cloudAudioRef.current = null;
+      }
       if (supported) {
         try { window.speechSynthesis.cancel(); } catch { /* noop */ }
       }
