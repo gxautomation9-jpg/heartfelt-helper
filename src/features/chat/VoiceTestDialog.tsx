@@ -28,6 +28,7 @@ export function VoiceTestDialog({ appLang, trigger }: { appLang: "ar" | "en"; tr
   const [prefs, setPrefs] = useState(() => loadVoicePrefs());
   const [playingURI, setPlayingURI] = useState<string | null>(null);
   const utterRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const cloudAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const supported = typeof window !== "undefined" && "speechSynthesis" in window;
 
