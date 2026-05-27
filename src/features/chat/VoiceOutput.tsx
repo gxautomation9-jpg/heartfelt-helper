@@ -7,7 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { useVoicePrefs, pickBestVoice, loadVoicePrefs, awaitVoices, onVoicesChanged } from "@/features/chat/VoiceSettings";
+import { useVoicePrefs, pickBestVoice, loadVoicePrefs, awaitVoices, onVoicesChanged, isCloudVoiceURI } from "@/features/chat/VoiceSettings";
 import { VoiceTestDialog } from "@/features/chat/VoiceTestDialog";
 
 type PlaybackState = "idle" | "playing" | "paused";
