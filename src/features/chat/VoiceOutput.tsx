@@ -128,6 +128,7 @@ export function VoiceOutput({
   const prevSpeedRef = useRef(speed);
   const startedRef = useRef(false);
   const watchdogRef = useRef<number | null>(null);
+  const cloudAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const prefs = useVoicePrefs();
   const speechText = useMemo(() => normalizeSpeechText(text), [text]);
