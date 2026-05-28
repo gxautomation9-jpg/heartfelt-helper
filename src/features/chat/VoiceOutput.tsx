@@ -488,9 +488,11 @@ export function VoiceOutput({
     if (!supported) return;
     if (state === "paused") {
       pauseRequestedRef.current = false;
-      if (cloudAudioRef.current) {
+      const pausedCloudAudio = cloudAudioRef.current;
+      const hasCloudSource = !!(pausedCloudAudio?.currentSrc || pausedCloudAudio?.getAttribute("src"));
+      if (pausedCloudAudio && hasCloudSource) {
         activeRef.current = true;
-        cloudAudioRef.current.play().then(() => {
+        pausedCloudAudio.play().then(() => {
           setNotice(null);
           setState("playing");
         }).catch(() => {
@@ -534,7 +536,10 @@ export function VoiceOutput({
     // fights with the user's pause and the audio resumes on its own.
     stopKeepAlive();
     if (cloudAudioRef.current) {
-      try { cloudAudioRef.current.pause(); } catch { /* noop */ }
+      const hasCloudSource = !!(cloudAudioRef.current.currentSrc || cloudAudioRef.current.getAttribute("src"));
+      if (hasCloudSource) {
+        try { cloudAudioRef.current.pause(); } catch { /* noop */ }
+      }
     } else if (nativeSpeechSupported) {
       try { window.speechSynthesis.pause(); } catch { /* noop */ }
     }
