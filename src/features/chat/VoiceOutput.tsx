@@ -129,6 +129,7 @@ export function VoiceOutput({
   const startedRef = useRef(false);
   const watchdogRef = useRef<number | null>(null);
   const cloudAudioRef = useRef<HTMLAudioElement | null>(null);
+  const pauseRequestedRef = useRef(false);
 
   const prefs = useVoicePrefs();
   const speechText = useMemo(() => normalizeSpeechText(text), [text]);
@@ -137,7 +138,9 @@ export function VoiceOutput({
     [preferLang, speechText],
   );
 
-  const supported = typeof window !== "undefined" && "speechSynthesis" in window;
+  const nativeSpeechSupported = typeof window !== "undefined" && "speechSynthesis" in window;
+  const cloudSpeechSupported = typeof window !== "undefined" && "Audio" in window;
+  const supported = nativeSpeechSupported || cloudSpeechSupported;
 
   const copy = useMemo(
     () =>
@@ -181,20 +184,16 @@ export function VoiceOutput({
     [copy],
   );
 
-  // Chrome stops speechSynthesis after ~15s — pump it with pause/resume.
+  // Keep a timer handle for older browsers, but do not repeatedly pause/resume
+  // active speech. That workaround interrupts many Chrome/mobile engines and
+  // is the main reason long replies stop after a few chunks. We split text into
+  // short chunks instead, which avoids the 15s speechSynthesis stall safely.
   const startKeepAlive = useCallback(() => {
-    if (!supported) return;
     if (keepAliveRef.current != null) return;
     keepAliveRef.current = window.setInterval(() => {
-      if (!activeRef.current) return;
-      if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
-        try {
-          window.speechSynthesis.pause();
-          window.speechSynthesis.resume();
-        } catch { /* noop */ }
-      }
-    }, 10_000);
-  }, [supported]);
+      if (!activeRef.current) stopKeepAlive();
+    }, 15_000);
+  }, []);
 
   const stopKeepAlive = useCallback(() => {
     if (keepAliveRef.current != null) {
