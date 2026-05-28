@@ -540,7 +540,7 @@ export function VoiceOutput({
   const replay = () => createAndPlay();
 
   useEffect(() => {
-    if (!supported) return;
+    if (!nativeSpeechSupported) return;
     let cancelled = false;
     // Wait (up to 3s) for the engine to populate voices. On Chrome desktop
     // and Android Chrome the first getVoices() call returns [] until the
@@ -555,7 +555,7 @@ export function VoiceOutput({
       cancelled = true;
       unsubscribe();
     };
-  }, [supported]);
+  }, [nativeSpeechSupported]);
 
   useEffect(() => {
     const onOther = (event: Event) => {
@@ -565,12 +565,19 @@ export function VoiceOutput({
       stoppedRef.current = true;
       activeRef.current = false;
       stopKeepAlive();
+      if (cloudAudioRef.current) {
+        try { cloudAudioRef.current.pause(); cloudAudioRef.current.src = ""; } catch { /* noop */ }
+        cloudAudioRef.current = null;
+      }
+      if (nativeSpeechSupported) {
+        try { window.speechSynthesis.cancel(); } catch { /* noop */ }
+      }
       setState("idle");
       setProgress(0);
     };
     window.addEventListener(VOICE_OUTPUT_START, onOther);
     return () => window.removeEventListener(VOICE_OUTPUT_START, onOther);
-  }, [stopKeepAlive]);
+  }, [nativeSpeechSupported, stopKeepAlive]);
 
   // Stop on unmount.
   useEffect(() => () => { stop(true); }, [stop]);
@@ -584,6 +591,11 @@ export function VoiceOutput({
     if (prevSpeedRef.current === speed) return;
     prevSpeedRef.current = speed;
     if (state === "playing" && activeRef.current) {
+      if (cloudAudioRef.current) {
+        cloudAudioRef.current.playbackRate = Math.min(1.25, speedRef.current * 1.08);
+        return;
+      }
+      if (!nativeSpeechSupported) return;
       const remaining = chunksRef.current.slice(chunkIndexRef.current);
       chunksRef.current = remaining;
       chunkIndexRef.current = 0;
@@ -593,7 +605,7 @@ export function VoiceOutput({
       try { window.speechSynthesis.cancel(); } catch { /* noop */ }
       window.setTimeout(() => { if (token === playTokenRef.current) speakChunk(token); }, 120);
     }
-  }, [speed, state, speakChunk]);
+  }, [nativeSpeechSupported, speed, state, speakChunk]);
 
   if (!supported || !speechText.trim()) return null;
 
