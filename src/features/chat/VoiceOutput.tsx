@@ -2,12 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play, RefreshCcw, RotateCcw, Settings2, Square, Volume2, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { useVoicePrefs, pickBestVoice, loadVoicePrefs, awaitVoices, onVoicesChanged, isCloudVoiceURI } from "@/features/chat/VoiceSettings";
+  useVoicePrefs,
+  pickBestVoice,
+  loadVoicePrefs,
+  awaitVoices,
+  onVoicesChanged,
+  isCloudVoiceURI,
+} from "@/features/chat/VoiceSettings";
 import { VoiceTestDialog } from "@/features/chat/VoiceTestDialog";
 
 type PlaybackState = "idle" | "playing" | "paused";
@@ -51,7 +54,10 @@ function splitForSpeech(text: string) {
   const sentences = text.match(/[^.!?؟؛。\n]+[.!?؟؛。]?/g) ?? [text];
   const chunks: string[] = [];
   let current = "";
-  const flush = () => { if (current.trim()) chunks.push(current.trim()); current = ""; };
+  const flush = () => {
+    if (current.trim()) chunks.push(current.trim());
+    current = "";
+  };
   for (const raw of sentences) {
     const s = raw.trim();
     if (!s) continue;
@@ -146,27 +152,50 @@ export function VoiceOutput({
     () =>
       appLang === "ar"
         ? {
-            play: "تشغيل", pause: "إيقاف مؤقت", stop: "إيقاف", replay: "إعادة",
-            regenerate: "تجديد الصوت", speed: "السرعة",
-            diagnostics: "تشخيص الصوت", testVoices: "اختبر أصواتي",
-            voice: "الصوت", lang: "اللغة", chunk: "المقطع", lastError: "آخر خطأ",
-            none: "لا يوجد", recommend: "اقتراح",
-            voiceUnavailable: "لم يتم العثور على صوت متوافق. افتح \"اختبر أصواتي\" واختر صوتاً يعمل.",
-            recoNoVoice: "ثبّت صوتاً عربياً من إعدادات النظام، أو اختر صوتاً آخر من \"اختبر أصواتي\".",
+            play: "تشغيل",
+            pause: "إيقاف مؤقت",
+            stop: "إيقاف",
+            replay: "إعادة",
+            regenerate: "تجديد الصوت",
+            speed: "السرعة",
+            diagnostics: "تشخيص الصوت",
+            testVoices: "اختبر أصواتي",
+            voice: "الصوت",
+            lang: "اللغة",
+            chunk: "المقطع",
+            lastError: "آخر خطأ",
+            none: "لا يوجد",
+            recommend: "اقتراح",
+            voiceUnavailable: 'لم يتم العثور على صوت متوافق. افتح "اختبر أصواتي" واختر صوتاً يعمل.',
+            recoNoVoice:
+              'ثبّت صوتاً عربياً من إعدادات النظام، أو اختر صوتاً آخر من "اختبر أصواتي".',
             recoInterrupted: "تم قطع التشغيل. تأكد أن تبويباً آخر لا يستخدم الصوت ثم أعد المحاولة.",
-            recoSynthFailed: "فشل التركيب — جرّب صوتاً محلياً (local) من قائمة \"اختبر أصواتي\".",
+            recoSynthFailed: 'فشل التركيب — جرّب صوتاً محلياً (local) من قائمة "اختبر أصواتي".',
             recoNetwork: "صوت سحابي يحتاج إنترنت — اختر صوتاً محلياً للاستقرار.",
           }
         : {
-            play: "Play", pause: "Pause", stop: "Stop", replay: "Replay",
-            regenerate: "Regenerate audio", speed: "Speed",
-            diagnostics: "Voice diagnostics", testVoices: "Test my voices",
-            voice: "Voice", lang: "Lang", chunk: "Chunk", lastError: "Last error",
-            none: "None", recommend: "Recommendation",
-            voiceUnavailable: "No compatible voice found. Open \"Test my voices\" and pick one that works.",
-            recoNoVoice: "Install a system voice for this language, or pick a different one from \"Test my voices\".",
-            recoInterrupted: "Playback was interrupted. Make sure no other tab is using audio and try again.",
-            recoSynthFailed: "Synthesis failed — try a local (offline) voice from \"Test my voices\".",
+            play: "Play",
+            pause: "Pause",
+            stop: "Stop",
+            replay: "Replay",
+            regenerate: "Regenerate audio",
+            speed: "Speed",
+            diagnostics: "Voice diagnostics",
+            testVoices: "Test my voices",
+            voice: "Voice",
+            lang: "Lang",
+            chunk: "Chunk",
+            lastError: "Last error",
+            none: "None",
+            recommend: "Recommendation",
+            voiceUnavailable:
+              'No compatible voice found. Open "Test my voices" and pick one that works.',
+            recoNoVoice:
+              'Install a system voice for this language, or pick a different one from "Test my voices".',
+            recoInterrupted:
+              "Playback was interrupted. Make sure no other tab is using audio and try again.",
+            recoSynthFailed:
+              'Synthesis failed — try a local (offline) voice from "Test my voices".',
             recoNetwork: "Cloud voice needs internet — switch to a local voice for reliability.",
           },
     [appLang],
@@ -178,7 +207,8 @@ export function VoiceOutput({
       if (!hadVoice) return copy.recoNoVoice;
       if (errorCode === "interrupted" || errorCode === "canceled") return copy.recoInterrupted;
       if (errorCode === "network" || errorCode === "audio-busy") return copy.recoNetwork;
-      if (errorCode === "synthesis-failed" || errorCode === "synthesis-unavailable") return copy.recoSynthFailed;
+      if (errorCode === "synthesis-failed" || errorCode === "synthesis-unavailable")
+        return copy.recoSynthFailed;
       return copy.recoSynthFailed;
     },
     [copy],
@@ -235,10 +265,18 @@ export function VoiceOutput({
       // safe path for Arabic on browsers without a local Arabic voice.
       if (selectedVoice && isCloudVoiceURI(selectedVoice.voiceURI)) {
         if (nativeSpeechSupported) {
-          try { window.speechSynthesis.cancel(); } catch { /* noop */ }
+          try {
+            window.speechSynthesis.cancel();
+          } catch {
+            /* noop */
+          }
         }
         const audio = cloudAudioRef.current ?? new Audio();
-        try { audio.pause(); } catch { /* noop */ }
+        try {
+          audio.pause();
+        } catch {
+          /* noop */
+        }
         audio.currentTime = 0;
         audio.src = `/api/tts?text=${encodeURIComponent(chunk)}&voice=${encodeURIComponent(selectedVoice.voiceURI)}`;
         audio.playbackRate = Math.min(1.25, speedRef.current * 1.08);
@@ -257,7 +295,10 @@ export function VoiceOutput({
         audio.onplay = () => {
           if (token !== playTokenRef.current) return;
           startedRef.current = true;
-          if (watchdogRef.current != null) { window.clearTimeout(watchdogRef.current); watchdogRef.current = null; }
+          if (watchdogRef.current != null) {
+            window.clearTimeout(watchdogRef.current);
+            watchdogRef.current = null;
+          }
           activeRef.current = true;
           setNotice(null);
           setState("playing");
@@ -270,7 +311,9 @@ export function VoiceOutput({
           if (token !== playTokenRef.current || stoppedRef.current) return;
           pauseRequestedRef.current = false;
           chunkIndexRef.current += 1;
-          setProgress(chunksRef.current.length ? chunkIndexRef.current / chunksRef.current.length : 1);
+          setProgress(
+            chunksRef.current.length ? chunkIndexRef.current / chunksRef.current.length : 1,
+          );
           window.setTimeout(() => speakChunk(token), 60);
         };
         audio.onerror = () => {
@@ -320,11 +363,13 @@ export function VoiceOutput({
       utterance.rate = Math.min(1.25, speedRef.current * 1.08);
       utterance.pitch = runLang === "ar" ? 1.18 : 1.22;
       utterance.volume = 1;
-      if (selectedVoice && !isCloudVoiceURI(selectedVoice.voiceURI) && selectedVoice.lang.toLowerCase().startsWith(runLang)) {
+      if (
+        selectedVoice &&
+        !isCloudVoiceURI(selectedVoice.voiceURI) &&
+        selectedVoice.lang.toLowerCase().startsWith(runLang)
+      ) {
         utterance.voice = selectedVoice as SpeechSynthesisVoice;
       }
-
-
 
       // A chunk is spoken once with its dominant language voice. This avoids
       // the same answer being read as both Arabic and English.
@@ -343,7 +388,10 @@ export function VoiceOutput({
       utterance.onstart = () => {
         if (token !== playTokenRef.current) return;
         startedRef.current = true;
-        if (watchdogRef.current != null) { window.clearTimeout(watchdogRef.current); watchdogRef.current = null; }
+        if (watchdogRef.current != null) {
+          window.clearTimeout(watchdogRef.current);
+          watchdogRef.current = null;
+        }
         activeRef.current = true;
         setNotice(null);
         setState("playing");
@@ -361,7 +409,8 @@ export function VoiceOutput({
           u.rate = Math.min(1.25, speedRef.current * 1.08);
           u.pitch = next.lang === "ar" ? 1.18 : 1.22;
           u.volume = 1;
-          if (v && !isCloudVoiceURI(v.voiceURI) && v.lang.toLowerCase().startsWith(next.lang)) u.voice = v as SpeechSynthesisVoice;
+          if (v && !isCloudVoiceURI(v.voiceURI) && v.lang.toLowerCase().startsWith(next.lang))
+            u.voice = v as SpeechSynthesisVoice;
 
           // Re-bind to the same handlers so the chain advances correctly.
           u.onend = utterance.onend;
@@ -370,7 +419,9 @@ export function VoiceOutput({
           return;
         }
         chunkIndexRef.current += 1;
-        setProgress(chunksRef.current.length ? chunkIndexRef.current / chunksRef.current.length : 1);
+        setProgress(
+          chunksRef.current.length ? chunkIndexRef.current / chunksRef.current.length : 1,
+        );
         // Small gap to avoid the Chrome cancel/queue race.
         window.setTimeout(() => speakChunk(token), 60);
       };
@@ -386,7 +437,15 @@ export function VoiceOutput({
         }));
         if (code === "interrupted" || code === "canceled") return;
         // Hard synthesis problems stay local: show diagnostics and stop cleanly.
-        const hardFail = ["synthesis-failed", "synthesis-unavailable", "audio-busy", "audio-hardware", "language-unavailable", "voice-unavailable", "network"].includes(code);
+        const hardFail = [
+          "synthesis-failed",
+          "synthesis-unavailable",
+          "audio-busy",
+          "audio-hardware",
+          "language-unavailable",
+          "voice-unavailable",
+          "network",
+        ].includes(code);
         if (hardFail) {
           activeRef.current = false;
           stopKeepAlive();
@@ -408,7 +467,17 @@ export function VoiceOutput({
 
       if (nativeSpeechSupported) window.speechSynthesis.speak(utterance);
     },
-    [supported, nativeSpeechSupported, voices, langPrefix, startKeepAlive, stopKeepAlive, recommendationFor, copy.voiceUnavailable, copy.recoNetwork],
+    [
+      supported,
+      nativeSpeechSupported,
+      voices,
+      langPrefix,
+      startKeepAlive,
+      stopKeepAlive,
+      recommendationFor,
+      copy.voiceUnavailable,
+      copy.recoNetwork,
+    ],
   );
 
   const stop = useCallback(
@@ -420,20 +489,31 @@ export function VoiceOutput({
       chunkIndexRef.current = 0;
       pauseRequestedRef.current = false;
       stopKeepAlive();
-      if (watchdogRef.current != null) { window.clearTimeout(watchdogRef.current); watchdogRef.current = null; }
+      if (watchdogRef.current != null) {
+        window.clearTimeout(watchdogRef.current);
+        watchdogRef.current = null;
+      }
       setProgress(0);
       if (cloudAudioRef.current) {
-        try { cloudAudioRef.current.pause(); cloudAudioRef.current.src = ""; } catch { /* noop */ }
+        try {
+          cloudAudioRef.current.pause();
+          cloudAudioRef.current.src = "";
+        } catch {
+          /* noop */
+        }
         cloudAudioRef.current = null;
       }
       if (nativeSpeechSupported) {
-        try { window.speechSynthesis.cancel(); } catch { /* noop */ }
+        try {
+          window.speechSynthesis.cancel();
+        } catch {
+          /* noop */
+        }
       }
       if (!silent) setState("idle");
     },
     [nativeSpeechSupported, stopKeepAlive],
   );
-
 
   const createAndPlay = useCallback(() => {
     if (!supported || !speechText.trim()) return;
@@ -449,12 +529,24 @@ export function VoiceOutput({
     chunkIndexRef.current = 0;
     pauseRequestedRef.current = false;
     startedRef.current = false;
-    if (watchdogRef.current != null) { window.clearTimeout(watchdogRef.current); watchdogRef.current = null; }
+    if (watchdogRef.current != null) {
+      window.clearTimeout(watchdogRef.current);
+      watchdogRef.current = null;
+    }
     setProgress(0);
     setNotice(null);
-    setDiag((d) => ({ ...d, lastError: null, lastErrorChunkIndex: null, recommendation: null, chunkIndex: 0, chunkCount: chunks.length }));
+    setDiag((d) => ({
+      ...d,
+      lastError: null,
+      lastErrorChunkIndex: null,
+      recommendation: null,
+      chunkIndex: 0,
+      chunkCount: chunks.length,
+    }));
 
-    window.dispatchEvent(new CustomEvent(VOICE_OUTPUT_START, { detail: { id: instanceIdRef.current } }));
+    window.dispatchEvent(
+      new CustomEvent(VOICE_OUTPUT_START, { detail: { id: instanceIdRef.current } }),
+    );
 
     // Create the media element synchronously from the user's click so mobile
     // browsers keep playback permission when the cloud chunk URL is assigned.
@@ -465,10 +557,20 @@ export function VoiceOutput({
     // Chrome has a known race: speak() right after cancel() can swallow the
     // first utterance. Give the engine a tick to drain before queueing.
     if (cloudAudioRef.current) {
-      try { cloudAudioRef.current.pause(); cloudAudioRef.current.removeAttribute("src"); cloudAudioRef.current.load(); } catch { /* noop */ }
+      try {
+        cloudAudioRef.current.pause();
+        cloudAudioRef.current.removeAttribute("src");
+        cloudAudioRef.current.load();
+      } catch {
+        /* noop */
+      }
     }
     if (nativeSpeechSupported) {
-      try { window.speechSynthesis.cancel(); } catch { /* noop */ }
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        /* noop */
+      }
     }
     window.setTimeout(() => {
       if (token === playTokenRef.current) speakChunk(token);
@@ -482,23 +584,35 @@ export function VoiceOutput({
       setState("idle");
       setNotice(copy.voiceUnavailable);
     }, 8000);
-  }, [cloudSpeechSupported, copy.voiceUnavailable, nativeSpeechSupported, speechText, speakChunk, supported]);
+  }, [
+    cloudSpeechSupported,
+    copy.voiceUnavailable,
+    nativeSpeechSupported,
+    speechText,
+    speakChunk,
+    supported,
+  ]);
 
   const playOrResume = () => {
     if (!supported) return;
     if (state === "paused") {
       pauseRequestedRef.current = false;
       const pausedCloudAudio = cloudAudioRef.current;
-      const hasCloudSource = !!(pausedCloudAudio?.currentSrc || pausedCloudAudio?.getAttribute("src"));
+      const hasCloudSource = !!(
+        pausedCloudAudio?.currentSrc || pausedCloudAudio?.getAttribute("src")
+      );
       if (pausedCloudAudio && hasCloudSource) {
         activeRef.current = true;
-        pausedCloudAudio.play().then(() => {
-          setNotice(null);
-          setState("playing");
-        }).catch(() => {
-          setState("paused");
-          setNotice(copy.recoNetwork);
-        });
+        pausedCloudAudio
+          .play()
+          .then(() => {
+            setNotice(null);
+            setState("playing");
+          })
+          .catch(() => {
+            setState("paused");
+            setNotice(copy.recoNetwork);
+          });
         return;
       }
       // Chrome's speechSynthesis.resume() is unreliable after a pause —
@@ -506,7 +620,11 @@ export function VoiceOutput({
       // verify after a tick; if nothing is speaking, restart from the
       // current chunk so the user always hears the rest of the message.
       if (!nativeSpeechSupported) return;
-      try { window.speechSynthesis.resume(); } catch { /* noop */ }
+      try {
+        window.speechSynthesis.resume();
+      } catch {
+        /* noop */
+      }
       setState("playing");
       window.setTimeout(() => {
         if (stoppedRef.current) return;
@@ -516,7 +634,11 @@ export function VoiceOutput({
           return;
         }
         // Resume failed — re-speak from the current chunk onward.
-        try { synth.cancel(); } catch { /* noop */ }
+        try {
+          synth.cancel();
+        } catch {
+          /* noop */
+        }
         playTokenRef.current += 1;
         const token = playTokenRef.current;
         stoppedRef.current = false;
@@ -536,12 +658,22 @@ export function VoiceOutput({
     // fights with the user's pause and the audio resumes on its own.
     stopKeepAlive();
     if (cloudAudioRef.current) {
-      const hasCloudSource = !!(cloudAudioRef.current.currentSrc || cloudAudioRef.current.getAttribute("src"));
+      const hasCloudSource = !!(
+        cloudAudioRef.current.currentSrc || cloudAudioRef.current.getAttribute("src")
+      );
       if (hasCloudSource) {
-        try { cloudAudioRef.current.pause(); } catch { /* noop */ }
+        try {
+          cloudAudioRef.current.pause();
+        } catch {
+          /* noop */
+        }
       }
     } else if (nativeSpeechSupported) {
-      try { window.speechSynthesis.pause(); } catch { /* noop */ }
+      try {
+        window.speechSynthesis.pause();
+      } catch {
+        /* noop */
+      }
     }
     setState("paused");
   };
@@ -574,11 +706,20 @@ export function VoiceOutput({
       activeRef.current = false;
       stopKeepAlive();
       if (cloudAudioRef.current) {
-        try { cloudAudioRef.current.pause(); cloudAudioRef.current.src = ""; } catch { /* noop */ }
+        try {
+          cloudAudioRef.current.pause();
+          cloudAudioRef.current.src = "";
+        } catch {
+          /* noop */
+        }
         cloudAudioRef.current = null;
       }
       if (nativeSpeechSupported) {
-        try { window.speechSynthesis.cancel(); } catch { /* noop */ }
+        try {
+          window.speechSynthesis.cancel();
+        } catch {
+          /* noop */
+        }
       }
       setState("idle");
       setProgress(0);
@@ -588,7 +729,12 @@ export function VoiceOutput({
   }, [nativeSpeechSupported, stopKeepAlive]);
 
   // Stop on unmount.
-  useEffect(() => () => { stop(true); }, [stop]);
+  useEffect(
+    () => () => {
+      stop(true);
+    },
+    [stop],
+  );
 
   useEffect(() => {
     speedRef.current = speed;
@@ -610,42 +756,96 @@ export function VoiceOutput({
       playTokenRef.current += 1;
       const token = playTokenRef.current;
       stoppedRef.current = false;
-      try { window.speechSynthesis.cancel(); } catch { /* noop */ }
-      window.setTimeout(() => { if (token === playTokenRef.current) speakChunk(token); }, 120);
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        /* noop */
+      }
+      window.setTimeout(() => {
+        if (token === playTokenRef.current) speakChunk(token);
+      }, 120);
     }
   }, [nativeSpeechSupported, speed, state, speakChunk]);
 
   if (!supported || !speechText.trim()) return null;
 
   return (
-    <div className="mt-3 rounded-xl border border-border/60 bg-background/35 p-2" dir={appLang === "ar" ? "rtl" : "ltr"}>
+    <div
+      className="mt-3 rounded-xl border border-border/60 bg-background/35 p-2"
+      dir={appLang === "ar" ? "rtl" : "ltr"}
+    >
       <div className="flex flex-wrap items-center gap-1.5">
         {state === "playing" ? (
-          <Button type="button" size="icon" variant="secondary" onClick={pause} aria-label={copy.pause} title={copy.pause}>
+          <Button
+            type="button"
+            size="icon"
+            variant="secondary"
+            onClick={pause}
+            aria-label={copy.pause}
+            title={copy.pause}
+          >
             <Pause className="h-3.5 w-3.5" />
           </Button>
         ) : (
-          <Button type="button" size="icon" variant="secondary" onClick={playOrResume} aria-label={copy.play} title={copy.play}>
+          <Button
+            type="button"
+            size="icon"
+            variant="secondary"
+            onClick={playOrResume}
+            aria-label={copy.play}
+            title={copy.play}
+          >
             <Play className="h-3.5 w-3.5" />
           </Button>
         )}
-        <Button type="button" size="icon" variant="ghost" onClick={() => stop()} aria-label={copy.stop} title={copy.stop}>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          onClick={() => stop()}
+          aria-label={copy.stop}
+          title={copy.stop}
+        >
           <Square className="h-3.5 w-3.5" />
         </Button>
-        <Button type="button" size="icon" variant="ghost" onClick={replay} aria-label={copy.replay} title={copy.replay}>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          onClick={replay}
+          aria-label={copy.replay}
+          title={copy.replay}
+        >
           <RotateCcw className="h-3.5 w-3.5" />
         </Button>
-        <Button type="button" size="icon" variant="ghost" onClick={createAndPlay} aria-label={copy.regenerate} title={copy.regenerate}>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          onClick={createAndPlay}
+          aria-label={copy.regenerate}
+          title={copy.regenerate}
+        >
           <RefreshCcw className="h-3.5 w-3.5" />
         </Button>
 
         <Popover>
           <PopoverTrigger asChild>
-            <Button type="button" size="icon" variant="ghost" aria-label={copy.diagnostics} title={copy.diagnostics}>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              aria-label={copy.diagnostics}
+              title={copy.diagnostics}
+            >
               <Info className="h-3.5 w-3.5" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="start" className="w-80 text-xs" dir={appLang === "ar" ? "rtl" : "ltr"}>
+          <PopoverContent
+            align="start"
+            className="w-80 text-xs"
+            dir={appLang === "ar" ? "rtl" : "ltr"}
+          >
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm font-semibold">{copy.diagnostics}</span>
               <VoiceTestDialog
@@ -666,28 +866,44 @@ export function VoiceOutput({
               <dd>{diag.chunkCount ? `${diag.chunkIndex + 1} / ${diag.chunkCount}` : "—"}</dd>
               <dt className="text-muted-foreground">{copy.lastError}</dt>
               <dd className="truncate">
-                {diag.lastError ? `${diag.lastError}${diag.lastErrorChunkIndex != null ? ` @ #${diag.lastErrorChunkIndex + 1}` : ""}` : copy.none}
+                {diag.lastError
+                  ? `${diag.lastError}${diag.lastErrorChunkIndex != null ? ` @ #${diag.lastErrorChunkIndex + 1}` : ""}`
+                  : copy.none}
               </dd>
             </dl>
             {diag.recommendation && (
               <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-200">
-                <span className="font-medium">{copy.recommend}: </span>{diag.recommendation}
+                <span className="font-medium">{copy.recommend}: </span>
+                {diag.recommendation}
               </p>
             )}
           </PopoverContent>
         </Popover>
 
-        <div className="ms-2 flex min-w-40 flex-1 items-center gap-2 text-xs text-muted-foreground" dir="ltr">
+        <div
+          className="ms-2 flex min-w-40 flex-1 items-center gap-2 text-xs text-muted-foreground"
+          dir="ltr"
+        >
           <Volume2 className="h-3.5 w-3.5 shrink-0" />
           <span className="shrink-0">{copy.speed}</span>
-          <Slider value={[speed]} min={0.7} max={1.2} step={0.05} onValueChange={([v]) => setSpeed(v ?? 1)} className="min-w-20 flex-1" />
+          <Slider
+            value={[speed]}
+            min={0.7}
+            max={1.2}
+            step={0.05}
+            onValueChange={([v]) => setSpeed(v ?? 1)}
+            className="min-w-20 flex-1"
+          />
           <span className="w-9 text-end tabular-nums">{speed.toFixed(2)}×</span>
         </div>
       </div>
 
       {(state === "playing" || state === "paused" || progress > 0 || notice) && (
         <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted/40" aria-hidden="true">
-          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${Math.max(4, Math.round(progress * 100))}%` }} />
+          <div
+            className="h-full rounded-full bg-primary transition-all"
+            style={{ width: `${Math.max(4, Math.round(progress * 100))}%` }}
+          />
         </div>
       )}
       {notice && (
@@ -695,7 +911,11 @@ export function VoiceOutput({
           <span>{notice}</span>
           <VoiceTestDialog
             appLang={appLang}
-            trigger={<Button type="button" size="sm" variant="outline" className="h-7">{copy.testVoices}</Button>}
+            trigger={
+              <Button type="button" size="sm" variant="outline" className="h-7">
+                {copy.testVoices}
+              </Button>
+            }
           />
         </div>
       )}
