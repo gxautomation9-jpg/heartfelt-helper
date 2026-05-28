@@ -456,7 +456,8 @@ export function VoiceOutput({
 
     window.dispatchEvent(new CustomEvent(VOICE_OUTPUT_START, { detail: { id: instanceIdRef.current } }));
 
-    // Astra policy: voice output stays fully local through the browser/device speech engine.
+    // Create the media element synchronously from the user's click so mobile
+    // browsers keep playback permission when the cloud chunk URL is assigned.
     if (!cloudAudioRef.current && cloudSpeechSupported) {
       cloudAudioRef.current = new Audio();
     }
@@ -464,8 +465,7 @@ export function VoiceOutput({
     // Chrome has a known race: speak() right after cancel() can swallow the
     // first utterance. Give the engine a tick to drain before queueing.
     if (cloudAudioRef.current) {
-      try { cloudAudioRef.current.pause(); cloudAudioRef.current.src = ""; } catch { /* noop */ }
-      cloudAudioRef.current = null;
+      try { cloudAudioRef.current.pause(); cloudAudioRef.current.removeAttribute("src"); cloudAudioRef.current.load(); } catch { /* noop */ }
     }
     if (nativeSpeechSupported) {
       try { window.speechSynthesis.cancel(); } catch { /* noop */ }
