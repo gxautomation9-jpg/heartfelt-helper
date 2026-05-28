@@ -426,12 +426,12 @@ export function VoiceOutput({
         try { cloudAudioRef.current.pause(); cloudAudioRef.current.src = ""; } catch { /* noop */ }
         cloudAudioRef.current = null;
       }
-      if (supported) {
+      if (nativeSpeechSupported) {
         try { window.speechSynthesis.cancel(); } catch { /* noop */ }
       }
       if (!silent) setState("idle");
     },
-    [supported, stopKeepAlive],
+    [nativeSpeechSupported, stopKeepAlive],
   );
 
 
@@ -447,6 +447,7 @@ export function VoiceOutput({
     activeRef.current = true;
     chunksRef.current = chunks;
     chunkIndexRef.current = 0;
+    pauseRequestedRef.current = false;
     startedRef.current = false;
     if (watchdogRef.current != null) { window.clearTimeout(watchdogRef.current); watchdogRef.current = null; }
     setProgress(0);
@@ -459,20 +460,26 @@ export function VoiceOutput({
 
     // Chrome has a known race: speak() right after cancel() can swallow the
     // first utterance. Give the engine a tick to drain before queueing.
-    try { window.speechSynthesis.cancel(); } catch { /* noop */ }
+    if (cloudAudioRef.current) {
+      try { cloudAudioRef.current.pause(); cloudAudioRef.current.src = ""; } catch { /* noop */ }
+      cloudAudioRef.current = null;
+    }
+    if (nativeSpeechSupported) {
+      try { window.speechSynthesis.cancel(); } catch { /* noop */ }
+    }
     window.setTimeout(() => {
       if (token === playTokenRef.current) speakChunk(token);
     }, 120);
 
-    // Watchdog: if no utterance has actually started after ~2.2s, stop cleanly.
+    // Watchdog: if no audio has actually started after a few seconds, stop cleanly.
     watchdogRef.current = window.setTimeout(() => {
       if (token !== playTokenRef.current) return;
       if (startedRef.current) return;
       activeRef.current = false;
       setState("idle");
       setNotice(copy.voiceUnavailable);
-    }, 2200);
-  }, [copy.voiceUnavailable, speechText, speakChunk, supported]);
+    }, 8000);
+  }, [copy.voiceUnavailable, nativeSpeechSupported, speechText, speakChunk, supported]);
 
   const playOrResume = () => {
     if (!supported) return;
