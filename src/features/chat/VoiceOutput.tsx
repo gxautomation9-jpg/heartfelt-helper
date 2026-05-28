@@ -191,7 +191,10 @@ export function VoiceOutput({
   const startKeepAlive = useCallback(() => {
     if (keepAliveRef.current != null) return;
     keepAliveRef.current = window.setInterval(() => {
-      if (!activeRef.current) stopKeepAlive();
+      if (!activeRef.current && keepAliveRef.current != null) {
+        window.clearInterval(keepAliveRef.current);
+        keepAliveRef.current = null;
+      }
     }, 15_000);
   }, []);
 
