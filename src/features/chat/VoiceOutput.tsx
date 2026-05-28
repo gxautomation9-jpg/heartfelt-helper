@@ -482,7 +482,7 @@ export function VoiceOutput({
       setState("idle");
       setNotice(copy.voiceUnavailable);
     }, 8000);
-  }, [copy.voiceUnavailable, nativeSpeechSupported, speechText, speakChunk, supported]);
+  }, [cloudSpeechSupported, copy.voiceUnavailable, nativeSpeechSupported, speechText, speakChunk, supported]);
 
   const playOrResume = () => {
     if (!supported) return;
