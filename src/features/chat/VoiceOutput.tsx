@@ -484,10 +484,23 @@ export function VoiceOutput({
   const playOrResume = () => {
     if (!supported) return;
     if (state === "paused") {
+      pauseRequestedRef.current = false;
+      if (cloudAudioRef.current) {
+        activeRef.current = true;
+        cloudAudioRef.current.play().then(() => {
+          setNotice(null);
+          setState("playing");
+        }).catch(() => {
+          setState("paused");
+          setNotice(copy.recoNetwork);
+        });
+        return;
+      }
       // Chrome's speechSynthesis.resume() is unreliable after a pause —
       // it often returns without actually speaking. Try resume first, then
       // verify after a tick; if nothing is speaking, restart from the
       // current chunk so the user always hears the rest of the message.
+      if (!nativeSpeechSupported) return;
       try { window.speechSynthesis.resume(); } catch { /* noop */ }
       setState("playing");
       window.setTimeout(() => {
@@ -513,10 +526,13 @@ export function VoiceOutput({
   };
   const pause = () => {
     if (!supported) return;
+    pauseRequestedRef.current = true;
     // Stop the keep-alive pump first — otherwise its pause/resume cycle
     // fights with the user's pause and the audio resumes on its own.
     stopKeepAlive();
-    if (supported) {
+    if (cloudAudioRef.current) {
+      try { cloudAudioRef.current.pause(); } catch { /* noop */ }
+    } else if (nativeSpeechSupported) {
       try { window.speechSynthesis.pause(); } catch { /* noop */ }
     }
     setState("paused");
