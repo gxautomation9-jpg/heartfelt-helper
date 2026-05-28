@@ -269,7 +269,6 @@ export function VoiceOutput({
         audio.onended = () => {
           if (token !== playTokenRef.current || stoppedRef.current) return;
           pauseRequestedRef.current = false;
-          cloudAudioRef.current = null;
           chunkIndexRef.current += 1;
           setProgress(chunksRef.current.length ? chunkIndexRef.current / chunksRef.current.length : 1);
           window.setTimeout(() => speakChunk(token), 60);
@@ -419,6 +418,7 @@ export function VoiceOutput({
       playTokenRef.current += 1;
       chunksRef.current = [];
       chunkIndexRef.current = 0;
+      pauseRequestedRef.current = false;
       stopKeepAlive();
       if (watchdogRef.current != null) { window.clearTimeout(watchdogRef.current); watchdogRef.current = null; }
       setProgress(0);
@@ -457,6 +457,9 @@ export function VoiceOutput({
     window.dispatchEvent(new CustomEvent(VOICE_OUTPUT_START, { detail: { id: instanceIdRef.current } }));
 
     // Astra policy: voice output stays fully local through the browser/device speech engine.
+    if (!cloudAudioRef.current && cloudSpeechSupported) {
+      cloudAudioRef.current = new Audio();
+    }
 
     // Chrome has a known race: speak() right after cancel() can swallow the
     // first utterance. Give the engine a tick to drain before queueing.
