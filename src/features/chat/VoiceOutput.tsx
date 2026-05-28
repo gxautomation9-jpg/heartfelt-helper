@@ -234,10 +234,13 @@ export function VoiceOutput({
       // Cloud voices are always available (no install needed), so they're the
       // safe path for Arabic on browsers without a local Arabic voice.
       if (selectedVoice && isCloudVoiceURI(selectedVoice.voiceURI)) {
-        try { window.speechSynthesis.cancel(); } catch { /* noop */ }
-        const audio = new Audio(
-          `/api/tts?text=${encodeURIComponent(chunk)}&voice=${encodeURIComponent(selectedVoice.voiceURI)}`,
-        );
+        if (nativeSpeechSupported) {
+          try { window.speechSynthesis.cancel(); } catch { /* noop */ }
+        }
+        const audio = cloudAudioRef.current ?? new Audio();
+        try { audio.pause(); } catch { /* noop */ }
+        audio.currentTime = 0;
+        audio.src = `/api/tts?text=${encodeURIComponent(chunk)}&voice=${encodeURIComponent(selectedVoice.voiceURI)}`;
         audio.playbackRate = Math.min(1.25, speedRef.current * 1.08);
         audio.preload = "auto";
         cloudAudioRef.current = audio;
@@ -259,8 +262,13 @@ export function VoiceOutput({
           setNotice(null);
           setState("playing");
         };
+        audio.onpause = () => {
+          if (token !== playTokenRef.current || stoppedRef.current || audio.ended) return;
+          if (pauseRequestedRef.current) setState("paused");
+        };
         audio.onended = () => {
           if (token !== playTokenRef.current || stoppedRef.current) return;
+          pauseRequestedRef.current = false;
           cloudAudioRef.current = null;
           chunkIndexRef.current += 1;
           setProgress(chunksRef.current.length ? chunkIndexRef.current / chunksRef.current.length : 1);
@@ -268,6 +276,7 @@ export function VoiceOutput({
         };
         audio.onerror = () => {
           if (token !== playTokenRef.current) return;
+          pauseRequestedRef.current = false;
           cloudAudioRef.current = null;
           setDiag((d) => ({
             ...d,
@@ -287,6 +296,8 @@ export function VoiceOutput({
         };
         audio.play().catch(() => {
           if (token !== playTokenRef.current) return;
+          activeRef.current = false;
+          setState("paused");
           setNotice(copy.recoNetwork);
         });
         return;
@@ -396,9 +407,9 @@ export function VoiceOutput({
         window.setTimeout(() => speakChunk(token), 60);
       };
 
-      window.speechSynthesis.speak(utterance);
+      if (nativeSpeechSupported) window.speechSynthesis.speak(utterance);
     },
-    [supported, voices, langPrefix, startKeepAlive, stopKeepAlive, recommendationFor, copy.voiceUnavailable, copy.recoNetwork],
+    [supported, nativeSpeechSupported, voices, langPrefix, startKeepAlive, stopKeepAlive, recommendationFor, copy.voiceUnavailable, copy.recoNetwork],
   );
 
   const stop = useCallback(
