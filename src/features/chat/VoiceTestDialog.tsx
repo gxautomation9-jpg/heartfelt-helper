@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { loadVoicePrefs, saveVoicePrefs, pickBestVoice, CLOUD_VOICES, isCloudVoiceURI, type CloudVoice } from "@/features/chat/VoiceSettings";
+import { awaitVoices, loadVoicePrefs, saveVoicePrefs, pickBestVoice, CLOUD_VOICES, isCloudVoiceURI, type CloudVoice } from "@/features/chat/VoiceSettings";
 
 const SAMPLES = {
   en: "Hello, I'm Astra. This is a quick test of my English voice — clear, calm, and natural.",
@@ -33,15 +33,24 @@ export function VoiceTestDialog({ appLang, trigger }: { appLang: "ar" | "en"; tr
   const supported = typeof window !== "undefined" && "speechSynthesis" in window;
 
   useEffect(() => {
-    if (!supported || !open) return;
+    if (!open) return;
     const load = () => setVoices(window.speechSynthesis.getVoices());
-    load();
-    const t = window.setTimeout(load, 250);
-    window.speechSynthesis.addEventListener?.("voiceschanged", load);
+    let cancelled = false;
+    if (supported) {
+      load();
+      awaitVoices(3000).then((list) => { if (!cancelled) setVoices(list); });
+      window.speechSynthesis.addEventListener?.("voiceschanged", load);
+    }
     return () => {
-      window.clearTimeout(t);
-      window.speechSynthesis.removeEventListener?.("voiceschanged", load);
-      window.speechSynthesis.cancel();
+      cancelled = true;
+      if (supported) {
+        window.speechSynthesis.removeEventListener?.("voiceschanged", load);
+        window.speechSynthesis.cancel();
+      }
+      if (cloudAudioRef.current) {
+        try { cloudAudioRef.current.pause(); cloudAudioRef.current.src = ""; } catch { /* noop */ }
+        cloudAudioRef.current = null;
+      }
       setPlayingURI(null);
     };
   }, [open, supported]);
@@ -75,9 +84,10 @@ export function VoiceTestDialog({ appLang, trigger }: { appLang: "ar" | "en"; tr
   const test = (voice: PickerVoice, lang: "ar" | "en") => {
     stopAll();
     if (isCloudVoiceURI(voice.voiceURI)) {
-      const audio = new Audio(
-        `/api/tts?text=${encodeURIComponent(SAMPLES[lang])}&voice=${encodeURIComponent(voice.voiceURI)}`,
-      );
+      const audio = cloudAudioRef.current ?? new Audio();
+      try { audio.pause(); } catch { /* noop */ }
+      audio.currentTime = 0;
+      audio.src = `/api/tts?text=${encodeURIComponent(SAMPLES[lang])}&voice=${encodeURIComponent(voice.voiceURI)}`;
       cloudAudioRef.current = audio;
       audio.onplay = () => setPlayingURI(voice.voiceURI);
       audio.onended = () => setPlayingURI(null);
@@ -179,7 +189,7 @@ export function VoiceTestDialog({ appLang, trigger }: { appLang: "ar" | "en"; tr
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-w-2xl" dir={appLang === "ar" ? "rtl" : "ltr"}>
+      <DialogContent className="max-h-[92vh] max-w-[min(96vw,72rem)] overflow-hidden" dir={appLang === "ar" ? "rtl" : "ltr"}>
         <DialogHeader>
           <DialogTitle>{appLang === "ar" ? "اختبر أصواتك" : "Test my voices"}</DialogTitle>
           <DialogDescription>
@@ -205,7 +215,7 @@ export function VoiceTestDialog({ appLang, trigger }: { appLang: "ar" | "en"; tr
                 <Play className="me-1 h-3 w-3" /> {appLang === "ar" ? "عيّنة" : "Sample"}
               </Button>
             </div>
-            <ScrollArea className="h-64 rounded-md border border-border/60 p-2">{renderList(arVoices, "ar")}</ScrollArea>
+            <ScrollArea className="h-[min(58vh,34rem)] rounded-md border border-border/60 p-2">{renderList(arVoices, "ar")}</ScrollArea>
           </div>
           <div>
             <div className="mb-2 flex items-center justify-between">
@@ -214,7 +224,7 @@ export function VoiceTestDialog({ appLang, trigger }: { appLang: "ar" | "en"; tr
                 <Play className="me-1 h-3 w-3" /> {appLang === "ar" ? "عيّنة" : "Sample"}
               </Button>
             </div>
-            <ScrollArea className="h-64 rounded-md border border-border/60 p-2">{renderList(enVoices, "en")}</ScrollArea>
+            <ScrollArea className="h-[min(58vh,34rem)] rounded-md border border-border/60 p-2">{renderList(enVoices, "en")}</ScrollArea>
           </div>
         </div>
 
